@@ -37,6 +37,14 @@ rm -rf /home/ubuntu/develop/docker
 git clone --depth 1 https://github.com/johnehealthwares/docker.git /home/ubuntu/develop/docker
 chown -R ubuntu:ubuntu /home/ubuntu/develop/docker
 
+echo "=== Fix build context symlinks ==="
+# GitHub docker-compose.prod.yml expects these directory names
+# but actual repos are cloned with different names on GitHub
+cd /home/ubuntu/develop
+ln -sf common-admin rxsoft-admin-3 2>/dev/null || true
+ln -sf common-healthcare-resources healthcare-concepts 2>/dev/null || true
+cd /home/ubuntu/develop/docker
+
 echo "=== Write backup config ==="
 cat <<'ENVEOF' > /home/ubuntu/develop/docker/.env.backup
 __BACKUP_ENV__
