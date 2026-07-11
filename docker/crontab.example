@@ -1,0 +1,36 @@
+#──────────────────────────────────────────────────────────────
+# RxSoft backup + schedule cron
+#
+# Install:
+#   crontab docker/crontab.example
+#
+# Or deploy to /etc/cron.d/ (requires root):
+#   sudo cp docker/crontab.example /etc/cron.d/rxsoft
+#──────────────────────────────────────────────────────────────
+
+# ── Scheduled start/stop (dev) ──────────────────────────────
+# Start at 7 AM weekdays, stop at 10 PM weekdays
+0 7 * * 1-5 /home/ubuntu/develop/docker/run-dev.sh start >> /var/log/rxsoft-cron.log 2>&1
+0 22 * * 1-5 /home/ubuntu/develop/docker/run-dev.sh stop  >> /var/log/rxsoft-cron.log 2>&1
+
+# ── Or for production ───────────────────────────────────────
+# 0 7 * * 1-5 /home/ubuntu/develop/docker/run-prod.sh start >> /var/log/rxsoft-cron.log 2>&1
+# 0 22 * * 1-5 /home/ubuntu/develop/docker/run-prod.sh stop  >> /var/log/rxsoft-cron.log 2>&1
+
+# ── Daily backup at 3 AM ───────────────────────────────────
+# 0 3 * * * root /home/ubuntu/develop/docker/backup.sh >> /var/log/rxsoft-backup.log 2>&1
+
+# With S3 upload:
+# 0 3 * * * root S3_BUCKET=rxsoft-postgres-backups-prod /home/ubuntu/develop/docker/backup.sh >> /var/log/rxsoft-backup.log 2>&1
+
+#──────────────────────────────────────────────────────────────
+# Logrotate (/etc/logrotate.d/rxsoft):
+#
+# /var/log/rxsoft-cron.log /var/log/rxsoft-backup.log {
+#   monthly
+#   rotate 12
+#   compress
+#   missingok
+#   notifempty
+# }
+#──────────────────────────────────────────────────────────────

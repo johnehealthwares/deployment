@@ -1,0 +1,14 @@
+.terraform/
+.env.ddns
+.ec2-ip
+/tmp/
+terraform/terraform.tfstate
+terraform/terraform.tfstate.backup
+terraform/ssh/
+graphify-out/
+findings.md
+progress.md
+INSTRUCTIONS.md
+RUNBOOK.md
+*.log
+.DS_Store

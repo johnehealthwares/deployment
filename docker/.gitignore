@@ -1,0 +1,4 @@
+mongo-keyfile
+.env
+*.log
+.DS_Store

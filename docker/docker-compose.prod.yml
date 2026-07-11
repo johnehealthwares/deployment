@@ -1,0 +1,323 @@
+services:
+
+  # ── Databases ──────────────────────────────────────────────
+
+  mongodb:
+    profiles: ["mongodb"]
+    image: mongo:8.0
+    container_name: rxsoft-mongodb
+    restart: unless-stopped
+    mem_limit: ${MEM_MONGODB:-512m}
+    command:
+      - "--replSet"
+      - "rs0"
+      - "--bind_ip_all"
+      - "--keyFile"
+      - "/etc/mongo-keyfile"
+      - "--wiredTigerCacheSizeGB"
+      - "1"
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: conversation_engine
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+      - ./mongodb/mongo-keyfile:/etc/mongo-keyfile:ro
+    healthcheck:
+      test: >
+        mongosh --username admin --password admin123 --authenticationDatabase admin
+        --eval "db.adminCommand('ping').ok"
+      interval: 10s
+      timeout: 15s
+      retries: 5
+    networks:
+      - rxsoft
+
+  mongo-init:
+    profiles: ["mongo-init"]
+    image: mongo:8.0
+    container_name: rxsoft-mongo-init
+    mem_limit: ${MEM_MONGO_INIT:-128m}
+    networks:
+      - rxsoft
+    volumes:
+      - ./mongo-init/init.sh:/mongo-init.sh:ro
+    entrypoint: ["bash", "/mongo-init.sh"]
+
+
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16
+    container_name: rxsoft-postgres
+    restart: unless-stopped
+    mem_limit: ${MEM_POSTGRES:-512m}
+    shm_size: 256m
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rxsoft
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "work_mem=16MB"
+
+  # ── Backend Services ───────────────────────────────────────
+
+  rxsoft-backend:
+    profiles: ["rxsoft-backend"]
+    build:
+      context: ../rxsoft-backend
+      dockerfile: ../docker/Dockerfile.rxsoft-backend
+    container_name: rxsoft-backend
+    mem_limit: ${MEM_RXSOFT_BACKEND:-512m}
+    restart: unless-stopped
+    ports:
+      - "8000:8080"
+    environment:
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: rxsoft
+      DB_SYNCHRONIZE: "true"
+      NODE_ENV: production
+      MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/apm_campaign?authSource=admin&directConnection=true"
+      SEED_ON_START: "false"
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/',r=>process.exit(0)).on('error',e=>process.exit(1))"]
+      interval: 30s
+      timeout: 15s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rxsoft
+
+  rxsoft-lis-backend:
+    profiles: ["rxsoft-lis-backend"]
+    build:
+      context: ../rxsoft-lis-backend
+      dockerfile: ../docker/Dockerfile.rxsoft-lis-backend
+    container_name: rxsoft-lis-backend
+    mem_limit: ${MEM_RXSOFT_LIS_BACKEND:-256m}
+    restart: unless-stopped
+    ports:
+      - "8002:8091"
+    environment:
+      PORT: 8091
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: lis
+      DB_SYNCHRONIZE: "true"
+      NODE_ENV: production
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8091/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rxsoft
+
+  conversation-engine:
+    profiles: ["conversation-engine"]
+    build:
+      context: ../conversation-engine
+      dockerfile: ../docker/Dockerfile.conversation-engine
+    container_name: rxsoft-conversation-engine
+    mem_limit: ${MEM_CONVERSATION_ENGINE:-1g}
+    restart: unless-stopped
+    ports:
+      - "8001:8090"
+    environment:
+      PORT: 8090
+      NODE_ENV: production
+      MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/conversation_engine?authSource=admin&directConnection=true"
+      SEED_ON_STARTUP: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - rxsoft
+
+  healthcare-concepts:
+    profiles: ["healthcare-concepts"]
+    build:
+      context: ../common-healthcare-resources
+      dockerfile: ../docker/Dockerfile.healthcare-concepts
+    container_name: rxsoft-healthcare-concepts
+    mem_limit: ${MEM_HEALTHCARE_CONCEPTS:-256m}
+    restart: unless-stopped
+    ports:
+      - "8004:3011"
+    environment:
+      PORT: 3011
+      DB_TYPE: sqlite
+      DB_NAME: coding-concepts.sqlite
+      NODE_ENV: production
+    volumes:
+      - sqlite_concepts_data:/app
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3011/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rxsoft
+
+  healthcare-interop:
+    profiles: ["healthcare-interop"]
+    build:
+      context: ../healthcare-interoperability-switch
+      dockerfile: ../docker/Dockerfile.healthcare-interop
+    container_name: rxsoft-healthcare-interop
+    mem_limit: ${MEM_HEALTHCARE_INTEROP:-256m}
+    restart: unless-stopped
+    ports:
+      - "8003:3000"
+    environment:
+      PORT: 3000
+      DB_TYPE: sqlite
+      DB_NAME: interop.sqlite
+      NODE_ENV: production
+      CODING_CONCEPT_BASE_URL: http://healthcare-concepts:3011/api/v1
+    volumes:
+      - sqlite_interop_data:/app
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rxsoft
+
+  # ── Frontend ───────────────────────────────────────────────
+
+  rxsoft-admin:
+    profiles: ["rxsoft-admin"]
+    build:
+      context: ../common-admin
+      dockerfile: ../docker/Dockerfile.rxsoft-admin
+      args:
+        VITE_RXSOFT_API_URL: /api/backend
+        VITE_IDENTITY_API_URL: /api/identity
+        VITE_LIS_API_URL: /api/lis
+        VITE_CONVERSATION_API_URL: /api/conversation
+        VITE_COMMUNICATION_API_URL: /api/communication
+        VITE_CODING_CONCEPT_API_URL: /api/coding
+    container_name: rxsoft-admin
+    mem_limit: ${MEM_RXSOFT_ADMIN:-128m}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    environment:
+      VITE_RXSOFT_API_URL: /api/backend
+      VITE_IDENTITY_API_URL: /api/identity
+      VITE_LIS_API_URL: /api/lis
+      VITE_CONVERSATION_API_URL: /api/conversation
+      VITE_COMMUNICATION_API_URL: /api/communication
+      VITE_CODING_CONCEPT_API_URL: /api/coding
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - rxsoft
+
+  rxsoft-identity:
+    profiles: ["rxsoft-identity"]
+    build:
+      context: ../identity
+      dockerfile: ../docker/Dockerfile.rxsoft-identity
+    container_name: rxsoft-identity
+    mem_limit: ${MEM_RXSOFT_IDENTITY:-256m}
+    restart: unless-stopped
+    ports:
+      - "8005:8092"
+    environment:
+      PORT: 8092
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: identity
+      DB_SYNCHRONIZE: "true"
+      NODE_ENV: production
+      JWT_ACCESS_SECRET: admin-access-secret
+      JWT_REFRESH_SECRET: admin-refresh-secret
+      INTERNAL_API_KEY: rxsoft-internal-key
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:8092/',r=>process.exit(0)).on('error',e=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rxsoft
+
+  # ── Admin Tools (optional — start via ENABLED_SERVICES) ────
+
+  adminer:
+    image: adminer
+    container_name: rxsoft-adminer
+    profiles: ["adminer"]
+    restart: unless-stopped
+    mem_limit: ${MEM_ADMINER:-64m}
+    ports:
+      - "8081:8080"
+    networks:
+      - rxsoft
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: rxsoft-mongo-express
+    profiles: ["mongo-express"]
+    restart: unless-stopped
+    mem_limit: ${MEM_MONGO_EXPRESS:-64m}
+    ports:
+      - "8082:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH: false
+    networks:
+      - rxsoft
+
+networks:
+  rxsoft:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  mongo_config:
+  postgres_data:
+  sqlite_concepts_data:
+  sqlite_interop_data:

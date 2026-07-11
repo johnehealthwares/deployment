@@ -1,0 +1,378 @@
+services:
+
+  # ── Databases ──────────────────────────────────────────────
+
+  mongodb:
+    profiles: ["mongodb"]
+    image: mongo:8.0
+    container_name: rxsoft-mongodb
+    restart: unless-stopped
+    mem_limit: ${MEM_MONGODB:-512m}
+    command:
+      - "--replSet"
+      - "rs0"
+      - "--bind_ip_all"
+      - "--keyFile"
+      - "/etc/mongo-keyfile"
+      - "--wiredTigerCacheSizeGB"
+      - "1"
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin123
+      MONGO_INITDB_DATABASE: conversation_engine
+    volumes:
+      - mongo_data:/data/db
+      - mongo_config:/data/configdb
+      - ./mongodb/mongo-keyfile:/etc/mongo-keyfile:ro
+    healthcheck:
+      test: >
+        mongosh --username admin --password admin123 --authenticationDatabase admin
+        --eval "db.adminCommand('ping').ok"
+      interval: 10s
+      timeout: 15s
+      retries: 5
+    networks:
+      - rxsoft
+
+  mongo-init:
+    profiles: ["mongo-init"]
+    mem_limit: ${MEM_MONGO_INIT:-128m}
+    image: mongo:8.0
+    container_name: rxsoft-mongo-init
+    networks:
+      - rxsoft
+    volumes:
+      - ./mongodb/init.sh:/mongo-init.sh:ro
+    entrypoint: ["bash", "/mongo-init.sh"]
+    
+
+  postgres:
+    profiles: ["postgres"]
+    image: postgres:16
+    container_name: rxsoft-postgres
+    restart: unless-stopped
+    mem_limit: ${MEM_POSTGRES:-512m}
+    shm_size: 256m
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgresdb:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - rxsoft
+    command:
+      - "postgres"
+      - "-c"
+      - "shared_buffers=256MB"
+      - "-c"
+      - "effective_cache_size=768MB"
+      - "-c"
+      - "work_mem=16MB"
+
+  # ── Backend Services ───────────────────────────────────────
+
+  rxsoft-backend:
+    profiles: ["rxsoft-backend"]
+    image: node:22
+    container_name: rxsoft-backend
+    mem_limit: ${MEM_RXSOFT_BACKEND:-2g}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      corepack enable && corepack prepare yarn@stable --activate &&
+       yarn install &&
+      yarn start
+      "
+    ports:
+      - "8000:8080"
+    environment:
+      YARN_HTTP_TIMEOUT: 300000
+      PORT: 8080
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: rxsoft
+      DB_SYNCHRONIZE: true
+      DB_DROP_SCHEMA: false
+      MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/apm_campaign?authSource=admin&directConnection=true"
+      # MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/apm_campaign?authSource=admin&replicaSet=rs0"
+      SEED_ON_START: true
+      NODE_OPTIONS: "--max-old-space-size=4096"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - ../../rxsoft-backend:/workspace
+      - rxsoft-backend_node_modules:/workspace/node_modules        # RE-ADDED: Stops file system drag
+      - yarn_global_cache:/root/.yarn/berry/cache                # RE-ADDED: Caches your zips safely
+    networks:
+      - rxsoft
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+  rxsoft-lis-backend:
+    profiles: ["rxsoft-lis-backend"]
+    image: node:22
+    container_name: rxsoft-lis-backend
+    mem_limit: ${MEM_RXSOFT_LIS_BACKEND:-2g}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      corepack enable && corepack prepare yarn@stable --activate &&
+       yarn install &&
+      yarn run start
+      "
+    ports:
+      - "8002:8091"
+    environment:
+      PORT: 8091
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: lis
+      DB_SYNCHRONIZE: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8091/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - ../../rxsoft-lis-backend:/workspace
+      - rxsoft-backend_node_modules:/workspace/node_modules        # RE-ADDED: Stops file system drag
+      - yarn_global_cache:/root/.yarn/berry/cache                # RE-ADDED: Caches your zips safely
+    networks:
+      - rxsoft
+
+  conversation-engine:
+    profiles: ["conversation-engine"]
+    image: node:22
+    container_name: rxsoft-conversation-engine
+    mem_limit: ${MEM_CONVERSATION_ENGINE:-512m}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      corepack enable &&
+       yarn install &&
+      yarn start
+      "
+    ports:
+      - "8001:8090"
+    environment:
+      YARN_HTTP_TIMEOUT: 300000
+      PORT: 8090
+      MONGODB_URI: mongodb://admin:admin123@mongodb:27017/conversation_engine?authSource=admin&replicaSet=rs0
+      # MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/conversation_engine?authSource=admin&directConnection=true"
+      SEED_ON_STARTUP: "true"
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8090/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    volumes:
+      - ../conversation-engine:/workspace
+      - yarn_global_cache:/root/.yarn/berry/cache 
+    networks:
+      - rxsoft
+
+  healthcare-concepts:
+    profiles: ["healthcare-concepts"]
+    image: node:22
+    container_name: rxsoft-healthcare-concepts
+    mem_limit: ${MEM_HEALTHCARE_CONCEPTS:-1g}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      corepack enable && corepack prepare yarn@stable --activate &&
+       yarn install &&
+      yarn start
+      "
+    ports:
+      - "8004:3011"
+    environment:
+      YARN_HTTP_TIMEOUT: 300000
+      PORT: 3011
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: concepts
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3011/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - ../../common-healthcare-resources:/workspace
+      - rxsoft-backend_node_modules:/workspace/node_modules        # RE-ADDED: Stops file system drag
+      - yarn_global_cache:/root/.yarn/berry/cache                # RE-ADDED: Caches your zips safely
+    networks:
+      - rxsoft
+
+  healthcare-interop:
+    profiles: ["healthcare-interop"]
+    image: node:22
+    container_name: rxsoft-healthcare-interop
+    mem_limit: ${MEM_HEALTHCARE_INTEROP:-512m}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      corepack enable && corepack prepare yarn@stable --activate &&
+       yarn install &&
+      yarn start
+      "
+    ports:
+      - "8003:3000"
+    environment:
+      PORT: 3000
+      DB_TYPE: sqlite
+      CODING_CONCEPT_BASE_URL: http://healthcare-concepts:3011/api/v1
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - ../healthcare-interoperability-switch:/workspace
+      - rxsoft-backend_node_modules:/workspace/node_modules        # RE-ADDED: Stops file system drag
+      - yarn_global_cache:/root/.yarn/berry/cache                # RE-ADDED: Caches your zips safely
+    networks:
+      - rxsoft
+
+  # ── Frontend ───────────────────────────────────────────────
+
+  rxsoft-admin:
+    profiles: ["rxsoft-admin"]
+    image: node:22
+    container_name: rxsoft-admin
+    mem_limit: ${MEM_RXSOFT_ADMIN:-2g}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      corepack enable && corepack prepare yarn@stable --activate &&
+      yarn install --immutable --immutable-cache --check-cache || yarn install &&
+      yarn dev --host 0.0.0.0 --port 5173
+      "
+    ports:
+      - "8080:5173"
+    environment:
+      YARN_HTTP_TIMEOUT: 300000
+      VITE_RXSOFT_API_URL: http://localhost:8000/api
+      VITE_LIS_API_URL: http://localhost:8002
+      VITE_CONVERSATION_API_URL: http://localhost:8001/api
+      VITE_COMMUNICATION_API_URL: http://localhost:8003/api/v1
+      VITE_CODING_CONCEPT_API_URL: http://localhost:8004/api/v1
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5173/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - ../../common-admin:/workspace
+      - rxsoft-admin_node_modules:/workspace/node_modules
+      - yarn_global_cache:/root/.yarn/berry/cache 
+    networks:
+      - rxsoft
+
+  rxsoft-identity:
+    profiles: ["rxsoft-identity"]
+    image: node:22
+    container_name: rxsoft-identity
+    mem_limit: ${MEM_RXSOFT_IDENTITY:-512m}
+    working_dir: /workspace
+    command: >
+      sh -c "
+      npm install --no-fund --no-audit &&
+      npm run start:dev
+      "
+    ports:
+      - "8005:8092"
+    environment:
+      PORT: 8092
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: identity
+      DB_SYNCHRONIZE: "true"
+      SEED_ON_START: "true"
+      JWT_ACCESS_SECRET: admin-access-secret
+      JWT_REFRESH_SECRET: admin-refresh-secret
+      INTERNAL_API_KEY: rxsoft-internal-key
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8092/"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    volumes:
+      - ../../identity:/workspace
+      - rxsoft-identity_node_modules:/workspace/node_modules
+    networks:
+      - rxsoft
+
+  # ── Admin Tools (optional — start via ENABLED_SERVICES) ────
+
+  adminer:
+    image: adminer
+    container_name: rxsoft-adminer
+    profiles: ["adminer"]
+    restart: unless-stopped
+    mem_limit: ${MEM_ADMINER:-64m}
+    ports:
+      - "8081:8080"
+    networks:
+      - rxsoft
+
+  mongo-express:
+    image: mongo-express:latest
+    container_name: rxsoft-mongo-express
+    profiles: ["mongo-express"]
+    restart: unless-stopped
+    mem_limit: ${MEM_MONGO_EXPRESS:-64m}
+    ports:
+      - "8082:8081"
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin123
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin123@mongodb:27017/?authSource=admin
+      ME_CONFIG_BASICAUTH: false
+    networks:
+      - rxsoft
+
+networks:
+  rxsoft:
+    driver: bridge
+
+volumes:
+  mongo_data:
+  mongo_config:
+  postgres_data:
+  rxsoft-backend_node_modules:
+  rxsoft-lis-backend_node_modules:
+  conversation-engine_node_modules:
+  healthcare-concepts_node_modules:
+  healthcare-interop_node_modules:
+  rxsoft-admin_node_modules:
+  rxsoft-identity_node_modules:
+  yarn_global_cache:

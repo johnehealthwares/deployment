@@ -1,0 +1,15 @@
+FROM node:22-slim AS build
+WORKDIR /app
+RUN npm config set fetch-timeout 300000
+COPY package.json ./
+RUN npm install
+COPY dist ./dist
+
+FROM node:22-slim AS production
+WORKDIR /app
+ENV NODE_ENV=production
+COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
+COPY package.json ./
+EXPOSE 8092
+CMD ["node", "dist/main.js"]
