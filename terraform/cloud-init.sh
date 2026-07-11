@@ -148,6 +148,9 @@ EXPOSE 8091
 CMD ["node", "dist/main"]
 DFILE
 
+echo "=== Copy nginx config to admin build context ==="
+cp /home/ubuntu/develop/docker/nginx-default.conf /home/ubuntu/develop/common-admin/ 2>/dev/null || true
+
 echo "=== Start services ==="
 DEPLOY_MODE=prod
 COMPOSE_FILE="/home/ubuntu/develop/docker/docker-compose.prod.yml"
