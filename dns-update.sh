@@ -138,14 +138,15 @@ if [ "$SKIP_NGINX" = false ]; then
     location /api/healthcare-concepts/ { set $u_concepts http://rxsoft-healthcare-concepts:3011/; proxy_pass $u_concepts; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
 PROXY
 )
-  API_ROUTES=$(echo "$PROXY_ROUTES" | sed 's|/api/|/|g')
+  # API routes: change location path prefix from /api/ to / but keep proxy_pass unchanged
+  API_ROUTES=$(echo "$PROXY_ROUTES" | sed 's|location /api/|location /|g')
 
   # Write frontend config
-  # NOTE: Must be marked default_server so it catches unmatched hostnames
-  # when api.conf is also loaded (alphabetical order would make api.conf default)
+  # NOTE: default.conf (from Docker build) is the catch-all with default_server.
+  # This config matches specific server_names only.
   cat > /tmp/rxsoft.conf <<NGINX
 server {
-    listen 80 default_server;
+    listen 80;
     server_name ${FE_NAMES% };
     root /usr/share/nginx/html;
     index index.html;
