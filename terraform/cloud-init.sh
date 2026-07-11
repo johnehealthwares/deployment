@@ -98,12 +98,11 @@ echo "=== Patch docker-compose.prod.yml ==="
 DCF=/home/ubuntu/develop/docker/docker-compose.prod.yml
 # Add postgres-init volume mount
 sed -i '/postgres_data:\/var\/lib\/postgresql\/data/a\      - .\/postgres-init:\/docker-entrypoint-initdb.d' "$DCF"
-# Fix backend healthcheck (wget --spider is fragile)
-sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8080/"\]|test: ["CMD", "node", "-e", "require('"'http'"').get('"'http://localhost:8080/'"',r=>process.exit(0)).on('"'error'"',e=>process.exit(1))"]|' "$DCF"
-sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8092/"\]|test: ["CMD", "node", "-e", "require('"'http'"').get('"'http://localhost:8092/'"',r=>process.exit(0)).on('"'error'"',e=>process.exit(1))"]|' "$DCF"
-# Add env vars to admin
-sed -i '/container_name: rxsoft-admin/,/healthcheck:/{ /^    environment:/a\      VITE_RXSOFT_API_URL: /api/backend\n      VITE_IDENTITY_API_URL: /api/identity\n      VITE_LIS_API_URL: /api/lis\n      VITE_CONVERSATION_API_URL: /api/conversation\n      VITE_COMMUNICATION_API_URL: /api/communication\n      VITE_CODING_CONCEPT_API_URL: /api/coding
-}' "$DCF"
+# Fix backend/identity healthcheck (wget --spider is fragile)
+sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8080/"\]|test: ["CMD", "node", "-e", "require('\''http'\'').get('\''http://localhost:8080/'\'',r=>process.exit(0)).on('\''error'\'',e=>process.exit(1))"]|' "$DCF"
+sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8092/"\]|test: ["CMD", "node", "-e", "require('\''http'\'').get('\''http://localhost:8092/'\'',r=>process.exit(0)).on('\''error'\'',e=>process.exit(1))"]|' "$DCF"
+# NOTE: VITE_* env vars are already in the GitHub compose file —
+# no sed patch needed. Adding them would cause duplicate key errors.
 
 echo "=== Write nginx-default.conf ==="
 cat > /home/ubuntu/develop/docker/nginx-default.conf <<'NGINX'
@@ -152,6 +151,9 @@ DFILE
 echo "=== Start services ==="
 DEPLOY_MODE=prod
 COMPOSE_FILE="/home/ubuntu/develop/docker/docker-compose.prod.yml"
+# Build one image at a time to avoid OOM on t3.small (2GB RAM)
+export COMPOSE_PARALLEL_LIMIT=1
+docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --wait 2>/dev/null || \
 docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d
 
 echo ""

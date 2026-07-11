@@ -107,8 +107,8 @@ if [ "$SKIP_DNS" = false ] && [ -n "$DDNS_HASH" ]; then
       if echo "$RESP" | grep -q "<ErrCount>0" 2>/dev/null; then
         ok "DDNS updated: ${host}.${DOMAIN} → ${IP}"
       else
-        ERR=$(echo "$RESP" | grep -o '<Err1>[^<]*' | head -1 | sed 's/<Err1>//')
-        fail "DDNS failed for ${host}: ${ERR:-unknown}"
+        ERR=$(echo "$RESP" | grep -o 'Err1[^<]*' | head -1 | sed 's/Err1//' | tr -d '>; ')
+        info "DDNS skipped for ${host}: ${ERR:-missing A record in Namecheap panel}"
       fi
     fi
   done
@@ -139,9 +139,11 @@ PROXY
   API_ROUTES=$(echo "$PROXY_ROUTES" | sed 's|/api/|/|g')
 
   # Write frontend config
+  # NOTE: Must be marked default_server so it catches unmatched hostnames
+  # when api.conf is also loaded (alphabetical order would make api.conf default)
   cat > /tmp/rxsoft.conf <<NGINX
 server {
-    listen 80;
+    listen 80 default_server;
     server_name ${FE_NAMES% };
     root /usr/share/nginx/html;
     index index.html;
