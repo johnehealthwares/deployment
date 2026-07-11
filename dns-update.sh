@@ -53,7 +53,9 @@ ENV_BLOCK=$(awk -v env="$ENV" '
 IP_SOURCE=$(echo "$ENV_BLOCK" | grep -E "ip_source:" | sed 's/.*: //' | tr -d '" ')
 
 FRONTEND_NAMES=$(echo "$ENV_BLOCK" | awk '/frontend:/{f=1;next} f && /server_names:/{gsub(/[\[\],]/,""); for(i=2;i<=NF;i++) print $i; exit}')
-API_NAMES=$(echo "$ENV_BLOCK" | awk '/api:/{f=1;next} f && /server_names:/{gsub(/[\[\],]/,""); for(i=2;i<=NF;i++) print $i; exit}')
+# API server names (hardcoded fallback if YAML parsing fails)
+API_NAMES=$(echo "$ENV_BLOCK" | awk '/^      api:/{f=1;next} f && /server_names:/{gsub(/[\[\],]/,""); for(i=2;i<=NF;i++) print $i; exit}')
+[ -z "$API_NAMES" ] && API_NAMES="api"
 
 # ── DDNS hash ────────────────────────────────────────────────
 DDNS_HASH=""

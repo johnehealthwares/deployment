@@ -7,22 +7,16 @@ set -euo pipefail
 
 cd /home/ubuntu/develop/docker
 
-echo "=== 1. Fix compose file (duplicate VITE_* vars) ==="
-# The GitHub compose has VITE_* already; cloud-init sed adds dups
+echo "=== 1. Check compose file valid ==="
 DCF=/home/ubuntu/develop/docker/docker-compose.prod.yml
-# Find and remove duplicate VITE_* lines after the first block
-DUPLICATE_LINES=$(grep -n "VITE_" "$DCF" | cut -d: -f1 | tail -n +7)
-if [ -n "$DUPLICATE_LINES" ]; then
-  # Delete duplicate lines from last occurrence backwards
-  echo "$DUPLICATE_LINES" | sort -rn | while read line; do
+docker compose -f "$DCF" config --services > /dev/null 2>&1 || {
+  echo "  WARNING: Compose file invalid — checking for known issues..."
+  # Check for duplicate VITE_* keys (from old cloud-init sed patch)
+  grep -n "VITE_" "$DCF" | cut -d: -f1 | sort | uniq -d | while read line; do
+    echo "  Duplicate VITE_* at line $line — removing"
     sed -i "${line}d" "$DCF"
   done
-  echo "  Removed duplicate VITE_* lines"
-fi
-
-echo "=== 2. Fix sed formatting (remove trailing '}' that broke compose) ==="
-# The sed patch for admin env vars leaves a trailing '}'
-sed -i '/^}$/d' "$DCF"
+}
 
 echo "=== 3. Create missing nest-cli.json files ==="
 for repo in healthcare-interoperability-switch common-admin; do
