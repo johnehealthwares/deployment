@@ -52,7 +52,12 @@ AWS_ACCOUNT_ID=$(terraform output -raw aws_account_id)
 REGISTRY_URL=$(terraform output -raw ecr_registry_url)
 cd "$OLDPWD"
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-IMAGE="$REGISTRY_URL/$SERVICE"
+# Map service name to ECR repo name (may differ)
+case "$SERVICE" in
+  ehealthwares) REPO="rxsoft-ehealthwares" ;;
+  *) REPO="$SERVICE" ;;
+esac
+IMAGE="$REGISTRY_URL/$REPO"
 ABS_CONTEXT="$PWD/$CONTEXT"
 
 echo "=== Build: $SERVICE ==="

@@ -81,6 +81,14 @@ ECR_PASS=$(aws ecr get-login-password --region "$REGION")
 $SSH_CMD "echo '$ECR_PASS' | sudo docker login --username AWS --password-stdin '$REGISTRY_URL'" 2>&1
 
 # ── Clone repos ────────────────────────────────────────────
+# ECR repo name (may differ from compose service name, e.g. ehealthwares -> rxsoft-ehealthwares)
+ecr_repo_for_service() {
+  case "$1" in
+    ehealthwares) echo "rxsoft-ehealthwares" ;;
+    *) echo "$1" ;;
+  esac
+}
+
 # Map: service|github_repo|clone_dir|compose_context|symlink
 REPO_MAP=(
   "rxsoft-backend|rxsoft-backend|rxsoft-backend|rxsoft-backend|"
@@ -157,7 +165,8 @@ done
 echo "--- Tag + push to ECR ---"
 ENV="$REGION"
 for svc in "${SERVICES[@]}"; do
-  IMAGE="$REGISTRY_URL/$svc"
+  REPO=$(ecr_repo_for_service "$svc")
+  IMAGE="$REGISTRY_URL/$REPO"
   echo "  $IMAGE:latest + env-$TIMESTAMP"
   $SSH_CMD "sudo docker tag '$IMAGE:latest' '$IMAGE:env-$TIMESTAMP' && sudo docker push '$IMAGE:latest' && sudo docker push '$IMAGE:env-$TIMESTAMP'" 2>&1 | tail -3
 done
