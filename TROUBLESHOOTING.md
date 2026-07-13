@@ -15,6 +15,50 @@ All commands run from `deployment/` unless prefixed with `ssh`.
 ssh -i terraform/ssh/id_rsa ubuntu@<IP>
 ```
 
+## Exec Into Containers
+
+```bash
+# Backend (NestJS) — browse API, check DB connection
+./ssh.sh sudo docker exec -it rxsoft-backend sh
+
+# Identity (NestJS) — check auth, tokens
+./ssh.sh sudo docker exec -it rxsoft-identity sh
+
+# Admin (nginx + React) — check nginx config, static files
+./ssh.sh sudo docker exec -it rxsoft-admin sh
+
+# PostgreSQL — run SQL queries
+./ssh.sh sudo docker exec -it rxsoft-postgres psql -U postgres
+
+# MongoDB — run mongo queries
+./ssh.sh sudo docker exec -it rxsoft-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin
+
+# Adminer (web DB admin tool) — if running
+./ssh.sh sudo docker exec -it rxsoft-adminer sh
+
+# Mongo Express (web Mongo admin tool) — if running
+./ssh.sh sudo docker exec -it rxsoft-mongo-express sh
+```
+
+## List Container Environment Variables
+
+```bash
+# All services
+./ssh.sh sudo docker exec rxsoft-backend env | sort
+./ssh.sh sudo docker exec rxsoft-identity env | sort
+./ssh.sh sudo docker exec rxsoft-admin env | sort
+./ssh.sh sudo docker exec rxsoft-postgres env | sort
+./ssh.sh sudo docker exec rxsoft-mongodb env | sort
+
+# Single variable lookup
+./ssh.sh sudo docker exec rxsoft-backend printenv DB_HOST JWT_ACCESS_SECRET
+
+# Via docker inspect (raw format, one per line)
+./ssh.sh sudo docker inspect rxsoft-backend --format '{{range .Config.Env}}{{println .}}{{end}}'
+./ssh.sh sudo docker inspect rxsoft-identity --format '{{range .Config.Env}}{{println .}}{{end}}'
+./ssh.sh sudo docker inspect rxsoft-admin --format '{{range .Config.Env}}{{println .}}{{end}}'
+```
+
 ## Containers
 
 ```bash

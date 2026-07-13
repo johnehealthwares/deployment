@@ -23,6 +23,12 @@ systemctl enable docker
 systemctl start docker
 for i in $(seq 1 10); do docker info >/dev/null 2>&1 && break; echo "Waiting for Docker... ($i)"; sleep 2; done
 
+echo "=== Authenticate to ECR ==="
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+echo "  ECR authenticated: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
+
 echo "=== Clone repos ==="
 mkdir -p /home/ubuntu/develop
 cd /home/ubuntu/develop
@@ -162,10 +168,10 @@ cp /home/ubuntu/develop/docker/nginx-default.conf /home/ubuntu/develop/common-ad
 echo "=== Start services ==="
 DEPLOY_MODE=prod
 COMPOSE_FILE="/home/ubuntu/develop/docker/docker-compose.prod.yml"
-# Build one image at a time to avoid OOM on t3.small (2GB RAM)
-export COMPOSE_PARALLEL_LIMIT=1
-docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --wait 2>/dev/null || \
-docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d
+export AWS_ACCOUNT_ID AWS_REGION
+docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ pull 2>/dev/null || true
+docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --no-build --wait 2>/dev/null || \
+docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --no-build
 
 echo ""
 echo "============================================"

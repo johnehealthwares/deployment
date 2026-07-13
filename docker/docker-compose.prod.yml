@@ -86,6 +86,7 @@ services:
     build:
       context: ../rxsoft-backend
       dockerfile: ../docker/Dockerfile.rxsoft-backend
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-backend:latest
     container_name: rxsoft-backend
     mem_limit: ${MEM_RXSOFT_BACKEND:-512m}
     restart: unless-stopped
@@ -102,6 +103,9 @@ services:
       NODE_ENV: production
       MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/apm_campaign?authSource=admin&directConnection=true"
       SEED_ON_START: "false"
+      JWT_ACCESS_SECRET: admin-access-secret
+      JWT_REFRESH_SECRET: admin-refresh-secret
+      INTERNAL_API_KEY: rxsoft-internal-key
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:8080/',r=>process.exit(0)).on('error',e=>process.exit(1))"]
       interval: 30s
@@ -116,6 +120,7 @@ services:
     build:
       context: ../rxsoft-lis-backend
       dockerfile: ../docker/Dockerfile.rxsoft-lis-backend
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-lis-backend:latest
     container_name: rxsoft-lis-backend
     mem_limit: ${MEM_RXSOFT_LIS_BACKEND:-256m}
     restart: unless-stopped
@@ -144,6 +149,7 @@ services:
     build:
       context: ../conversation-engine
       dockerfile: ../docker/Dockerfile.conversation-engine
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/conversation-engine:latest
     container_name: rxsoft-conversation-engine
     mem_limit: ${MEM_CONVERSATION_ENGINE:-1g}
     restart: unless-stopped
@@ -168,6 +174,7 @@ services:
     build:
       context: ../common-healthcare-resources
       dockerfile: ../docker/Dockerfile.healthcare-concepts
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/healthcare-concepts:latest
     container_name: rxsoft-healthcare-concepts
     mem_limit: ${MEM_HEALTHCARE_CONCEPTS:-256m}
     restart: unless-stopped
@@ -194,6 +201,7 @@ services:
     build:
       context: ../healthcare-interoperability-switch
       dockerfile: ../docker/Dockerfile.healthcare-interop
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/healthcare-interop:latest
     container_name: rxsoft-healthcare-interop
     mem_limit: ${MEM_HEALTHCARE_INTEROP:-256m}
     restart: unless-stopped
@@ -230,6 +238,7 @@ services:
         VITE_CONVERSATION_API_URL: /api/conversation
         VITE_COMMUNICATION_API_URL: /api/communication
         VITE_CODING_CONCEPT_API_URL: /api/coding
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-admin:latest
     container_name: rxsoft-admin
     mem_limit: ${MEM_RXSOFT_ADMIN:-128m}
     restart: unless-stopped
@@ -256,6 +265,7 @@ services:
     build:
       context: ../identity
       dockerfile: ../docker/Dockerfile.rxsoft-identity
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-identity:latest
     container_name: rxsoft-identity
     mem_limit: ${MEM_RXSOFT_IDENTITY:-256m}
     restart: unless-stopped
@@ -275,6 +285,33 @@ services:
       INTERNAL_API_KEY: rxsoft-internal-key
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://localhost:8092/',r=>process.exit(0)).on('error',e=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    networks:
+      - rxsoft
+
+  # ── Website ────────────────────────────────────────────────
+
+  ehealthwares:
+    profiles: ["ehealthwares"]
+    build:
+      context: ../ehealthwares
+      dockerfile: ../docker/Dockerfile.ehealthwares
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/ehealthwares:latest
+    container_name: rxsoft-ehealthwares
+    mem_limit: ${MEM_EHEALTHWARES:-256m}
+    restart: unless-stopped
+    ports:
+      - "8083:3000"
+    environment:
+      NODE_ENV: production
+      HOSTNAME: "0.0.0.0"
+      API_URL: http://api.ehealthwares.com
+      NEXT_PUBLIC_API_URL: http://www.ehealthwares.com
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/',r=>process.exit(0)).on('error',e=>process.exit(1))"]
       interval: 30s
       timeout: 10s
       retries: 5

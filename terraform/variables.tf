@@ -45,5 +45,6 @@ variable "service_memory" {
     healthcare-interop  = 0
     rxsoft-identity     = 10
     rxsoft-admin        = 5
+    ehealthwares        = 10
   }
 }

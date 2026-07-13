@@ -13,6 +13,8 @@ provider "aws" {
   region = var.aws_region
 }
 
+data "aws_caller_identity" "current" {}
+
 resource "aws_key_pair" "server" {
   key_name   = "rxsoft-key"
   public_key = file("${path.module}/ssh/id_rsa.pub")
@@ -109,6 +111,73 @@ resource "aws_iam_instance_profile" "profile" {
   role = aws_iam_role.ec2_role.name
 }
 
+# ── ECR Repositories ──────────────────────────────────────
+
+locals {
+  ecr_services = [
+    "rxsoft-backend",
+    "rxsoft-identity",
+    "rxsoft-admin",
+    "rxsoft-ehealthwares",
+    "rxsoft-lis-backend",
+    "conversation-engine",
+    "healthcare-concepts",
+    "healthcare-interop",
+  ]
+}
+
+resource "aws_ecr_repository" "services" {
+  for_each = toset(local.ecr_services)
+
+  name                 = each.key
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+}
+
+resource "aws_ecr_lifecycle_policy" "services" {
+  for_each = aws_ecr_repository.services
+
+  repository = each.value.name
+
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Keep last 5 tagged images"
+      selection = {
+        tagStatus   = "tagged"
+        tagPrefixList = ["env-"]
+        countType   = "imageCountMoreThan"
+        countNumber = 5
+      }
+      action = {
+        type = "expire"
+      }
+    }, {
+      rulePriority = 2
+      description  = "Expire untagged images after 7 days"
+      selection = {
+        tagStatus   = "untagged"
+        countType   = "sinceImagePushed"
+        countUnit   = "days"
+        countNumber = 7
+      }
+      action = {
+        type = "expire"
+      }
+    }]
+  })
+}
+
+# ── ECR Pull IAM Policy ───────────────────────────────────
+
+resource "aws_iam_role_policy_attachment" "ecr_pull" {
+  role       = aws_iam_role.ec2_role.name
+  policy_arn = "arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+}
+
 resource "aws_instance" "postgres" {
 
   ami           = "ami-0d64bb532e0502c46" # Ubuntu 24.04 eu-west-1
@@ -158,4 +227,18 @@ resource "aws_eip" "postgres" {
 
 output "public_ip" {
   value = aws_eip.postgres.public_ip
+}
+
+output "aws_account_id" {
+  value = data.aws_caller_identity.current.account_id
+}
+
+output "ecr_repository_urls" {
+  value = {
+    for k, repo in aws_ecr_repository.services : k => repo.repository_url
+  }
+}
+
+output "ecr_registry_url" {
+  value = "${data.aws_caller_identity.current.account_id}.dkr.ecr.${var.aws_region}.amazonaws.com"
 }

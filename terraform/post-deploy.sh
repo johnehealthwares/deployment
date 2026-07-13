@@ -59,27 +59,27 @@ echo "=== 6. Copy nginx config to build context ==="
 cp nginx-default.conf /home/ubuntu/develop/common-admin/ 2>/dev/null || true
 
 echo "=== 7. Start databases ==="
+AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+export AWS_ACCOUNT_ID AWS_REGION
+
 docker compose -f "$DCF" --env-file .env.memory --profile postgres --profile mongodb up -d
 echo "  Waiting for databases..."
 sleep 15
 
-echo "=== 8. Build and start backend (pre-built dist) ==="
-docker compose -f "$DCF" --env-file .env.memory up -d --no-deps rxsoft-backend
-sleep 10
+echo "=== 8. Pull and start remaining services ==="
+for service in rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares; do
+  echo "  Pulling $service..."
+  docker compose -f "$DCF" --env-file .env.memory pull "$service" 2>&1 | tail -1
+  docker compose -f "$DCF" --env-file .env.memory up -d --no-build --no-deps "$service"
+  sleep 10
+done
 
-echo "=== 9. Build and start identity (pre-built dist) ==="
-docker compose -f "$DCF" --env-file .env.memory up -d --no-deps rxsoft-identity
-sleep 10
-
-echo "=== 10. Build and start admin ==="
-docker compose -f "$DCF" --env-file .env.memory up -d --no-deps rxsoft-admin
-sleep 10
-
-echo "=== 11. Start mongo-init ==="
+echo "=== 12. Start mongo-init ==="
 docker compose -f "$DCF" --env-file .env.memory up -d --no-deps mongo-init
 sleep 5
 
-echo "=== 12. Patch admin JS files ==="
+echo "=== 13. Patch admin JS files ==="
 docker exec rxsoft-admin sh -c '
   sed -i "s|https://rxsoft-backend.onrender.com/api|/api/backend|g" /usr/share/nginx/html/assets/*.js
   sed -i "s|http://localhost:3011/api/v1|/api/healthcare-concepts/api/v1|g" /usr/share/nginx/html/assets/*.js
