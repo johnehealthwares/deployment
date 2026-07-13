@@ -39,9 +39,11 @@ done
 chown -R ubuntu:ubuntu /home/ubuntu/develop
 
 echo "=== Clone deployment repo ==="
-rm -rf /home/ubuntu/develop/docker
-git clone --depth 1 https://github.com/johnehealthwares/docker.git /home/ubuntu/develop/docker
-chown -R ubuntu:ubuntu /home/ubuntu/develop/docker
+rm -rf /home/ubuntu/develop/deployment
+git clone --depth 1 https://github.com/johnehealthwares/deployment.git /home/ubuntu/develop/deployment
+chown -R ubuntu:ubuntu /home/ubuntu/develop/deployment
+# Docker config lives in deployment/docker/
+ln -sf /home/ubuntu/develop/deployment/docker /home/ubuntu/develop/docker 2>/dev/null || true
 
 echo "=== Fix build context symlinks ==="
 # GitHub docker-compose.prod.yml expects these directory names

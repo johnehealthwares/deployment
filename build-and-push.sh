@@ -115,14 +115,14 @@ for entry in "${REPO_MAP[@]}"; do
   clone_if_needed "$gh" "$dir"
 done
 
-# ── Clone docker config repo ────────────────────────────────
-echo "  Cloning docker config..."
-$SSH_CMD "cd /home/ubuntu/develop && git clone --depth 1 https://github.com/johnehealthwares/docker.git" 2>&1 | tail -1
+# ── Clone deployment repo (contains docker config) ────────────
+echo "  Cloning deployment config..."
+$SSH_CMD "cd /home/ubuntu/develop && git clone --depth 1 https://github.com/johnehealthwares/deployment.git" 2>&1 | tail -1
 
 # ── Build images ───────────────────────────────────────────
 echo "--- Build images ---"
 ENV_VARS="AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=$REGION"
-$SSH_CMD "cd /home/ubuntu/develop/docker && sudo $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build ${SERVICES[*]}" 2>&1
+$SSH_CMD "cd /home/ubuntu/develop/deployment/docker && sudo $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build ${SERVICES[*]}" 2>&1
 
 # ── Tag + Push to ECR ──────────────────────────────────────
 echo "--- Tag + push to ECR ---"
