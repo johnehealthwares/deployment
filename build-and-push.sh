@@ -24,7 +24,7 @@ SERVICE=""; MODE=""
 for arg in "$@"; do
   case "$arg" in
     --all) MODE="all" ;;
-    --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin rxsoft-ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
+    --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
     *) [ -z "$SERVICE" ] && SERVICE="$arg" || { echo "Error: multiple services"; exit 1; } ;;
   esac
 done
@@ -33,7 +33,7 @@ if [ -z "$MODE" ] && [ -z "$SERVICE" ]; then echo "Error: specify --all or a ser
 
 SERVICES=()
 if [ "$MODE" = "all" ]; then
-  SERVICES=(rxsoft-backend rxsoft-identity rxsoft-admin rxsoft-ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop)
+  SERVICES=(rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop)
 else
   SERVICES=("$SERVICE")
 fi
@@ -86,7 +86,7 @@ REPO_MAP=(
   "rxsoft-backend|rxsoft-backend|rxsoft-backend|rxsoft-backend|"
   "rxsoft-identity|identity|identity|identity|"
   "rxsoft-admin|common-admin|common-admin|common-admin|"
-  "rxsoft-ehealthwares|ehealthwares|ehealthwares|ehealthwares|"
+  "ehealthwares|ehealthwares|ehealthwares|ehealthwares|"
   "rxsoft-lis-backend|rxsoft-lis-backend|rxsoft-lis-backend|rxsoft-lis-backend|"
   "conversation-engine|conversation-engine|conversation-engine|conversation-engine|"
   "healthcare-concepts|common-healthcare-resources|common-healthcare-resources|common-healthcare-resources|"

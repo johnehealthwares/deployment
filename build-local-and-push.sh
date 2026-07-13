@@ -17,7 +17,7 @@ REGION="eu-west-1"
 SERVICE=""
 for arg in "$@"; do
   case "$arg" in
-    --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin rxsoft-ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
+    --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
     *) [ -z "$SERVICE" ] && SERVICE="$arg" || { echo "Error: multiple services"; exit 1; } ;;
   esac
 done
@@ -29,7 +29,7 @@ CONFIG_MAP=(
   "rxsoft-backend|../rxsoft-backend|Dockerfile.rxsoft-backend|rxsoft-backend"
   "rxsoft-identity|../rxsoft-identity|Dockerfile.rxsoft-identity|identity"
   "rxsoft-admin|../rxsoft-admin-3|Dockerfile.rxsoft-admin|common-admin"
-  "rxsoft-ehealthwares|../ehealthwares|Dockerfile.ehealthwares|ehealthwares"
+  "ehealthwares|../ehealthwares|Dockerfile.ehealthwares|ehealthwares"
   "rxsoft-lis-backend|../rxsoft-lis-backend|Dockerfile.rxsoft-lis-backend|rxsoft-lis-backend"
   "conversation-engine|../conversation-engine|Dockerfile.conversation-engine|conversation-engine"
   "healthcare-concepts|../healthcare-concepts|Dockerfile.healthcare-concepts|common-healthcare-resources"

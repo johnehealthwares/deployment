@@ -299,7 +299,7 @@ services:
     build:
       context: ../ehealthwares
       dockerfile: ../docker/Dockerfile.ehealthwares
-    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/ehealthwares:latest
+    image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-ehealthwares:latest
     container_name: rxsoft-ehealthwares
     mem_limit: ${MEM_EHEALTHWARES:-256m}
     restart: unless-stopped
