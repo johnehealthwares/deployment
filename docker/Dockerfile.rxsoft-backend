@@ -1,7 +1,7 @@
 FROM node:22-slim AS build
 WORKDIR /app
 ENV YARN_HTTP_TIMEOUT=300000
-ENV NODE_OPTIONS="--max-old-space-size=1536"
+ENV NODE_OPTIONS="--max-old-space-size=4096"
 COPY package.json ./
 RUN corepack enable && yarn install
 COPY tsconfig.json tsconfig.build.json nest-cli.json ./

@@ -93,15 +93,14 @@ REPO_MAP=(
   "healthcare-interop|healthcare-interoperability-switch|healthcare-interoperability-switch|healthcare-interoperability-switch|"
 )
 
-clone_if_needed() {
-  local gh_repo="$1" clone_dir="$2"
-  $SSH_CMD "[ -d /home/ubuntu/develop/$clone_dir/.git ] && echo CLONED || echo NEED_CLONE" 2>/dev/null | grep -q CLONED && return 0
-  echo "  Cloning $gh_repo -> $clone_dir"
-  $SSH_CMD "cd /home/ubuntu/develop && git clone --depth 1 https://github.com/johnehealthwares/$gh_repo.git $clone_dir" 2>&1 | tail -1
-}
-
 echo "--- Clone repos ---"
 $SSH_CMD "sudo mkdir -p /home/ubuntu/develop && sudo chown ubuntu:ubuntu /home/ubuntu/develop" 2>&1
+
+# Clone deployment repo first (creates /home/ubuntu/develop/deployment/ with docker/ subdir)
+echo "  Cloning deployment config..."
+$SSH_CMD "cd /home/ubuntu/develop && git clone --depth 1 https://github.com/johnehealthwares/deployment.git" 2>&1 | tail -1
+
+# Then clone source repos inside deployment/ so docker compose build contexts resolve
 for entry in "${REPO_MAP[@]}"; do
   s="${entry%%|*}"; rest="${entry#*|}"
   gh="${rest%%|*}"; rest="${rest#*|}"
@@ -112,17 +111,47 @@ for entry in "${REPO_MAP[@]}"; do
   for svc in "${SERVICES[@]}"; do [ "$s" = "$svc" ] && found=true && break; done
   $found || continue
 
-  clone_if_needed "$gh" "$dir"
+  $SSH_CMD "[ -d /home/ubuntu/develop/deployment/$dir/.git ] && echo CLONED || echo NEED_CLONE" 2>/dev/null | grep -q CLONED && continue
+  echo "  Cloning $gh -> $dir"
+  $SSH_CMD "cd /home/ubuntu/develop/deployment && git clone --depth 1 https://github.com/johnehealthwares/$gh.git $dir" 2>&1 | tail -1
 done
 
-# ── Clone deployment repo (contains docker config) ────────────
-echo "  Cloning deployment config..."
-$SSH_CMD "cd /home/ubuntu/develop && git clone --depth 1 https://github.com/johnehealthwares/deployment.git" 2>&1 | tail -1
+# ── Fix missing build files ──────────────────────────────────
+echo "--- Fix missing build files ---"
+$SSH_CMD "bash -c '
+  DIR=/home/ubuntu/develop/deployment/healthcare-interoperability-switch
+  [ ! -d \"\$DIR\" ] && exit 0
+  cd \"\$DIR\"
+  [ -f nest-cli.json ] && exit 0
+  cat > nest-cli.json <<\"EOF\"
+{
+  \"\$schema\": \"https://json.schemastore.org/nest-cli\",
+  \"collection\": \"@nestjs/schematics\",
+  \"sourceRoot\": \"src\",
+  \"compilerOptions\": { \"deleteOutDir\": true }
+}
+EOF
+  cat > tsconfig.build.json <<\"EOF\"
+{
+  \"extends\": \"./tsconfig.json\",
+  \"exclude\": [\"node_modules\", \"test\", \"dist\", \"**/*spec.ts\"]
+}
+EOF
+  echo \"Created nest-cli.json + tsconfig.build.json\"
+'" 2>&1
 
-# ── Build images ───────────────────────────────────────────
+# ── Copy nginx config into admin build context ───────────────
+echo "  Copying nginx config into admin build context..."
+$SSH_CMD "cp /home/ubuntu/develop/deployment/docker/nginx-default.conf /home/ubuntu/develop/deployment/common-admin/ 2>/dev/null && echo '  Done' || echo '  Skipped (no common-admin)'" 2>&1 | tail -1
+
+# ── Build images (with retry for transient Docker Hub errors) ──
 echo "--- Build images ---"
 ENV_VARS="AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=$REGION"
-$SSH_CMD "cd /home/ubuntu/develop/deployment/docker && sudo $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build ${SERVICES[*]}" 2>&1
+for try in 1 2 3; do
+  $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && sudo $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build ${SERVICES[*]}" 2>&1 && break
+  echo "  Build attempt $try failed, retrying in 10s..."
+  sleep 10
+done
 
 # ── Tag + Push to ECR ──────────────────────────────────────
 echo "--- Tag + push to ECR ---"
