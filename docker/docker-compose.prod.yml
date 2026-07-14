@@ -91,6 +91,7 @@ services:
         GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-backend:latest
     container_name: rxsoft-backend
+    env_file: .env.rxsoft-backend
     mem_limit: ${MEM_RXSOFT_BACKEND:-512m}
     restart: unless-stopped
     ports:
@@ -125,6 +126,7 @@ services:
       dockerfile: ../docker/Dockerfile.rxsoft-lis-backend
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-lis-backend:latest
     container_name: rxsoft-lis-backend
+    env_file: .env.rxsoft-lis-backend
     mem_limit: ${MEM_RXSOFT_LIS_BACKEND:-256m}
     restart: unless-stopped
     ports:
@@ -154,6 +156,7 @@ services:
       dockerfile: ../docker/Dockerfile.conversation-engine
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/conversation-engine:latest
     container_name: rxsoft-conversation-engine
+    env_file: .env.conversation-engine
     mem_limit: ${MEM_CONVERSATION_ENGINE:-1g}
     restart: unless-stopped
     ports:
@@ -179,6 +182,7 @@ services:
       dockerfile: ../docker/Dockerfile.healthcare-concepts
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/healthcare-concepts:latest
     container_name: rxsoft-healthcare-concepts
+    env_file: .env.healthcare-concepts
     mem_limit: ${MEM_HEALTHCARE_CONCEPTS:-256m}
     restart: unless-stopped
     ports:
@@ -206,6 +210,7 @@ services:
       dockerfile: ../docker/Dockerfile.healthcare-interop
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/healthcare-interop:latest
     container_name: rxsoft-healthcare-interop
+    env_file: .env.healthcare-interop
     mem_limit: ${MEM_HEALTHCARE_INTEROP:-256m}
     restart: unless-stopped
     ports:
@@ -243,6 +248,7 @@ services:
         VITE_CODING_CONCEPT_API_URL: /api/coding
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-admin:latest
     container_name: rxsoft-admin
+    env_file: .env.rxsoft-admin
     mem_limit: ${MEM_RXSOFT_ADMIN:-128m}
     restart: unless-stopped
     ports:
@@ -272,6 +278,7 @@ services:
       dockerfile: ../docker/Dockerfile.rxsoft-identity
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-identity:latest
     container_name: rxsoft-identity
+    env_file: .env.rxsoft-identity
     mem_limit: ${MEM_RXSOFT_IDENTITY:-256m}
     restart: unless-stopped
     ports:
@@ -306,6 +313,7 @@ services:
       dockerfile: ../docker/Dockerfile.ehealthwares
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-ehealthwares:latest
     container_name: rxsoft-ehealthwares
+    env_file: .env.ehealthwares
     mem_limit: ${MEM_EHEALTHWARES:-256m}
     restart: unless-stopped
     ports:
