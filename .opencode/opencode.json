@@ -1,0 +1,19 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "plugin": [
+    ".opencode/plugins/graphify.js"
+  ],
+  "skills": {
+    "paths": [
+      ".opencode/skills",
+      "conversation-engine/.opencode/skills",
+      "healthcare-concepts/.opencode/skills",
+      "healthcare-interoperability-switch/.opencode/skills",
+      "rxsoft-admin-3/.opencode/skills",
+      "rxsoft-backend/.opencode/skills",
+      "rxsoft-identity/.opencode/skills",
+      "rxsoft-lis-backend/.opencode/skills",
+      "rxsoft-mobile/.opencode/skills"
+    ]
+  }
+}

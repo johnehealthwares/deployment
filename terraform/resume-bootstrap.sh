@@ -58,27 +58,20 @@ DCF=/home/ubuntu/develop/docker/docker-compose.prod.yml
 sed -i '/postgres_data:\/var\/lib\/postgresql\/data/a\      - .\/postgres-init:\/docker-entrypoint-initdb.d' "$DCF"
 sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8080/"\]|test: ["CMD", "node", "-e", "require('\''http'\'').get('\''http://localhost:8080/'\'',r=>process.exit(0)).on('\''error'\'',e=>process.exit(1))"]|' "$DCF"
 sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8092/"\]|test: ["CMD", "node", "-e", "require('\''http'\'').get('\''http://localhost:8092/'\'',r=>process.exit(0)).on('\''error'\'',e=>process.exit(1))"]|' "$DCF"
-sed -i '/container_name: rxsoft-admin/,/healthcheck:/{ /^    environment:/a\      VITE_RXSOFT_API_URL: /api/backend\n      VITE_IDENTITY_API_URL: /api/identity\n      VITE_LIS_API_URL: /api/lis\n      VITE_CONVERSATION_API_URL: /api/conversation\n      VITE_COMMUNICATION_API_URL: /api/communication\n      VITE_CODING_CONCEPT_API_URL: /api/coding
+sed -i '/container_name: rxsoft-admin/,/healthcheck:/{ /^    environment:/a\      VITE_RXSOFT_API_URL: /api\n      VITE_IDENTITY_API_URL: /api/identity\n      VITE_LIS_API_URL: /api/lis\n      VITE_CONVERSATION_API_URL: /api/conversation\n      VITE_COMMUNICATION_API_URL: /api/communication\n      VITE_CODING_CONCEPT_API_URL: /api/coding
 }' "$DCF"
 
 echo "=== Write nginx-default.conf ==="
 cat > /home/ubuntu/develop/docker/nginx-default.conf <<'NGINX'
 server {
-    listen 80;
+    listen 80 default_server;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
-    resolver 127.0.0.11 valid=30s;
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_comp_level 6;
-    location /api/backend/ { proxy_pass http://rxsoft-backend:8080/api/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/identity/ { proxy_pass http://rxsoft-identity:8092/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/lis/ { set $lis_upstream http://rxsoft-lis-backend:8091/; proxy_pass $lis_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/conversation/ { set $conv_upstream http://rxsoft-conversation-engine:8090/; proxy_pass $conv_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/communication/ { proxy_pass http://rxsoft-backend:8080/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/coding/ { set $coding_upstream http://healthcare-interop:3000/; proxy_pass $coding_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/healthcare-concepts/ { set $hc_upstream http://rxsoft-healthcare-concepts:3011/; proxy_pass $hc_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
+
     location / { try_files $uri $uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }

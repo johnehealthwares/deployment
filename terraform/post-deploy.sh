@@ -58,6 +58,19 @@ fi
 echo "=== 6. Copy nginx config to build context ==="
 cp nginx-default.conf /home/ubuntu/develop/common-admin/ 2>/dev/null || true
 
+echo "=== 6b. Create proxy_params.conf for volume mount ==="
+mkdir -p /home/ubuntu/develop/docker/nginx
+cat > /home/ubuntu/develop/docker/nginx/proxy_params.conf <<'PROXY'
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_connect_timeout 60s;
+proxy_read_timeout 60s;
+proxy_send_timeout 60s;
+client_max_body_size 50m;
+PROXY
+
 echo "=== 7. Start databases ==="
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
 AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
@@ -81,7 +94,7 @@ sleep 5
 
 echo "=== 13. Patch admin JS files ==="
 docker exec rxsoft-admin sh -c '
-  sed -i "s|https://rxsoft-backend.onrender.com/api|/api/backend|g" /usr/share/nginx/html/assets/*.js
+  sed -i "s|https://rxsoft-backend.onrender.com/api|/api|g" /usr/share/nginx/html/assets/*.js
   sed -i "s|http://localhost:3011/api/v1|/api/healthcare-concepts/api/v1|g" /usr/share/nginx/html/assets/*.js
   sed -i "s|http://localhost:8091|/api/lis|g" /usr/share/nginx/html/assets/*.js
   sed -i "s|http://localhost:3000/api/v1|/api/coding/api/v1|g" /usr/share/nginx/html/assets/*.js

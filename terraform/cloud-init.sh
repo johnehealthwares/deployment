@@ -1,6 +1,27 @@
 #!/bin/bash
 set -e
 
+# ═══════════════════════════════════════════════════════════════
+# Use terraform-apply.sh instead of bare terraform apply to
+# auto-update .ec2-ip and handle cloud-init re-run:
+#
+#   cd terraform && ./terraform-apply.sh -auto-approve
+#
+# To teardown while keeping S3 + ECR (no state corruption):
+#
+#   ./teardown.sh --keep-s3-ecr --force
+#
+# If state was already corrupted (import ECR back):
+#
+#   terraform import "aws_s3_bucket.backups" "rxsoft-postgres-backups-prod"
+#   for repo in rxsoft-backend rxsoft-identity rxsoft-admin rxsoft-ehealthwares \
+#               rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop; do
+#     terraform import "aws_ecr_repository.services[\"$repo\"]" "$repo"
+#     terraform import "aws_ecr_lifecycle_policy.services[\"$repo\"]" "$repo"
+#   done
+#   terraform apply -auto-approve
+# ═══════════════════════════════════════════════════════════════
+
 exec > >(tee /var/log/cloud-init.log) 2>&1
 
 echo "=== System update ==="
@@ -29,29 +50,14 @@ AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 echo "  ECR authenticated: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
-echo "=== Clone repos ==="
-mkdir -p /home/ubuntu/develop
-cd /home/ubuntu/develop
-for repo in rxsoft-backend rxsoft-lis-backend common-admin common-healthcare-resources healthcare-interoperability-switch conversation-engine identity; do
-  rm -rf "$repo"
-  git clone --depth 1 "https://github.com/johnehealthwares/${repo}.git"
-done
-chown -R ubuntu:ubuntu /home/ubuntu/develop
-
 echo "=== Clone deployment repo ==="
+mkdir -p /home/ubuntu/develop
+chown ubuntu:ubuntu /home/ubuntu/develop
 rm -rf /home/ubuntu/develop/deployment
 git clone --depth 1 https://github.com/johnehealthwares/deployment.git /home/ubuntu/develop/deployment
 chown -R ubuntu:ubuntu /home/ubuntu/develop/deployment
-# Docker config lives in deployment/docker/
+# Docker config lives in deployment/docker/ — symlink for convenience
 ln -sf /home/ubuntu/develop/deployment/docker /home/ubuntu/develop/docker 2>/dev/null || true
-
-echo "=== Fix build context symlinks ==="
-# GitHub docker-compose.prod.yml expects these directory names
-# but actual repos are cloned with different names on GitHub
-cd /home/ubuntu/develop
-ln -sf common-admin rxsoft-admin-3 2>/dev/null || true
-ln -sf common-healthcare-resources healthcare-concepts 2>/dev/null || true
-cd /home/ubuntu/develop/docker
 
 echo "=== Write backup config ==="
 cat <<'ENVEOF' > /home/ubuntu/develop/docker/.env.backup
@@ -123,22 +129,14 @@ sed -i 's|test: \["CMD", "wget", "--spider", "-q", "http://localhost:8092/"\]|te
 echo "=== Write nginx-default.conf ==="
 cat > /home/ubuntu/develop/docker/nginx-default.conf <<'NGINX'
 server {
-    listen 80;
+    listen 80 default_server;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
-    resolver 127.0.0.11 valid=30s;
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_comp_level 6;
 
-    location /api/backend/ { proxy_pass http://rxsoft-backend:8080/api/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/identity/ { proxy_pass http://rxsoft-identity:8092/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/lis/ { set $lis_upstream http://rxsoft-lis-backend:8091/; proxy_pass $lis_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/conversation/ { set $conv_upstream http://rxsoft-conversation-engine:8090/; proxy_pass $conv_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/communication/ { proxy_pass http://rxsoft-backend:8080/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/coding/ { set $coding_upstream http://healthcare-interop:3000/; proxy_pass $coding_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/healthcare-concepts/ { set $hc_upstream http://rxsoft-healthcare-concepts:3011/; proxy_pass $hc_upstream; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
     location / { try_files $uri $uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }
@@ -166,6 +164,19 @@ DFILE
 
 echo "=== Copy nginx config to admin build context ==="
 cp /home/ubuntu/develop/docker/nginx-default.conf /home/ubuntu/develop/common-admin/ 2>/dev/null || true
+
+echo "=== Create proxy_params.conf for volume mount ==="
+mkdir -p /home/ubuntu/develop/docker/nginx
+cat > /home/ubuntu/develop/docker/nginx/proxy_params.conf <<'PROXY'
+proxy_set_header Host $host;
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+proxy_set_header X-Forwarded-Proto $scheme;
+proxy_connect_timeout 60s;
+proxy_read_timeout 60s;
+proxy_send_timeout 60s;
+client_max_body_size 50m;
+PROXY
 
 echo "=== Start services ==="
 DEPLOY_MODE=prod

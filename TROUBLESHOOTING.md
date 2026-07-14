@@ -40,6 +40,29 @@ ssh -i terraform/ssh/id_rsa ubuntu@<IP>
 ./ssh.sh sudo docker exec -it rxsoft-mongo-express sh
 ```
 
+## Nginx Config
+
+```bash
+# View all nginx configs in the admin container
+./ssh.sh sudo docker exec rxsoft-admin ls /etc/nginx/conf.d/
+./ssh.sh sudo docker exec rxsoft-admin cat /etc/nginx/conf.d/default.conf
+./ssh.sh sudo docker exec rxsoft-admin cat /etc/nginx/conf.d/rxsoft.conf
+./ssh.sh sudo docker exec rxsoft-admin cat /etc/nginx/conf.d/api.conf
+./ssh.sh sudo docker exec rxsoft-admin cat /etc/nginx/conf.d/www.conf
+
+# Test config validity
+./ssh.sh sudo docker exec rxsoft-admin nginx -t
+
+# Reload config (after changes)
+./ssh.sh sudo docker exec rxsoft-admin nginx -s reload
+
+# View nginx error log
+./ssh.sh sudo docker exec rxsoft-admin cat /var/log/nginx/error.log
+
+# SCP local configs to server
+scp -i terraform/ssh/id_rsa docker/nginx-default.conf ubuntu@<IP>:/home/ubuntu/develop/docker/
+```
+
 ## List Container Environment Variables
 
 ```bash
@@ -71,6 +94,7 @@ ssh -i terraform/ssh/id_rsa ubuntu@<IP>
 ./ssh.sh sudo docker logs rxsoft-mongodb --tail 20
 ./ssh.sh sudo docker logs rxsoft-postgres --tail 20
 ./ssh.sh sudo docker logs rxsoft-admin --tail 20
+./ssh.sh sudo docker logs rxsoft-ehealthwares --tail 20
 
 # Restart single service
 ./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml --env-file /home/ubuntu/develop/docker/.env.memory up -d --no-deps <service>

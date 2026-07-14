@@ -1,0 +1,173 @@
+{
+  "version": 4,
+  "terraform_version": "1.14.9",
+  "serial": 199,
+  "lineage": "7b0ec601-2bf1-f5f2-5b28-f690d16b60f3",
+  "outputs": {},
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_ecr_repository",
+      "name": "services",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "index_key": "rxsoft-admin",
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:ecr:eu-west-1:750906968644:repository/rxsoft-admin",
+            "encryption_configuration": [
+              {
+                "encryption_type": "AES256",
+                "kms_key": ""
+              }
+            ],
+            "force_delete": null,
+            "id": "rxsoft-admin",
+            "image_scanning_configuration": [
+              {
+                "scan_on_push": true
+              }
+            ],
+            "image_tag_mutability": "MUTABLE",
+            "image_tag_mutability_exclusion_filter": [],
+            "name": "rxsoft-admin",
+            "region": "eu-west-1",
+            "registry_id": "750906968644",
+            "repository_url": "750906968644.dkr.ecr.eu-west-1.amazonaws.com/rxsoft-admin",
+            "tags": {},
+            "tags_all": {},
+            "timeouts": null
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "750906968644",
+            "name": "rxsoft-admin",
+            "region": "eu-west-1"
+          },
+          "private": "eyJlMmJmYjczMC1lY2FhLTExZTYtOGY4OC0zNDM2M2JjN2M0YzAiOnsiZGVsZXRlIjoxMjAwMDAwMDAwMDAwfX0="
+        },
+        {
+          "index_key": "rxsoft-backend",
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:ecr:eu-west-1:750906968644:repository/rxsoft-backend",
+            "encryption_configuration": [
+              {
+                "encryption_type": "AES256",
+                "kms_key": ""
+              }
+            ],
+            "force_delete": null,
+            "id": "rxsoft-backend",
+            "image_scanning_configuration": [
+              {
+                "scan_on_push": true
+              }
+            ],
+            "image_tag_mutability": "MUTABLE",
+            "image_tag_mutability_exclusion_filter": [],
+            "name": "rxsoft-backend",
+            "region": "eu-west-1",
+            "registry_id": "750906968644",
+            "repository_url": "750906968644.dkr.ecr.eu-west-1.amazonaws.com/rxsoft-backend",
+            "tags": {},
+            "tags_all": {},
+            "timeouts": null
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "750906968644",
+            "name": "rxsoft-backend",
+            "region": "eu-west-1"
+          },
+          "private": "eyJlMmJmYjczMC1lY2FhLTExZTYtOGY4OC0zNDM2M2JjN2M0YzAiOnsiZGVsZXRlIjoxMjAwMDAwMDAwMDAwfX0="
+        },
+        {
+          "index_key": "rxsoft-ehealthwares",
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:ecr:eu-west-1:750906968644:repository/rxsoft-ehealthwares",
+            "encryption_configuration": [
+              {
+                "encryption_type": "AES256",
+                "kms_key": ""
+              }
+            ],
+            "force_delete": null,
+            "id": "rxsoft-ehealthwares",
+            "image_scanning_configuration": [
+              {
+                "scan_on_push": true
+              }
+            ],
+            "image_tag_mutability": "MUTABLE",
+            "image_tag_mutability_exclusion_filter": [],
+            "name": "rxsoft-ehealthwares",
+            "region": "eu-west-1",
+            "registry_id": "750906968644",
+            "repository_url": "750906968644.dkr.ecr.eu-west-1.amazonaws.com/rxsoft-ehealthwares",
+            "tags": {},
+            "tags_all": {},
+            "timeouts": null
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "750906968644",
+            "name": "rxsoft-ehealthwares",
+            "region": "eu-west-1"
+          },
+          "private": "eyJlMmJmYjczMC1lY2FhLTExZTYtOGY4OC0zNDM2M2JjN2M0YzAiOnsiZGVsZXRlIjoxMjAwMDAwMDAwMDAwfX0="
+        },
+        {
+          "index_key": "rxsoft-identity",
+          "schema_version": 0,
+          "attributes": {
+            "arn": "arn:aws:ecr:eu-west-1:750906968644:repository/rxsoft-identity",
+            "encryption_configuration": [
+              {
+                "encryption_type": "AES256",
+                "kms_key": ""
+              }
+            ],
+            "force_delete": null,
+            "id": "rxsoft-identity",
+            "image_scanning_configuration": [
+              {
+                "scan_on_push": true
+              }
+            ],
+            "image_tag_mutability": "MUTABLE",
+            "image_tag_mutability_exclusion_filter": [],
+            "name": "rxsoft-identity",
+            "region": "eu-west-1",
+            "registry_id": "750906968644",
+            "repository_url": "750906968644.dkr.ecr.eu-west-1.amazonaws.com/rxsoft-identity",
+            "tags": {},
+            "tags_all": {},
+            "timeouts": null
+          },
+          "sensitive_attributes": [],
+          "identity_schema_version": 0,
+          "identity": {
+            "account_id": "750906968644",
+            "name": "rxsoft-identity",
+            "region": "eu-west-1"
+          },
+          "private": "eyJlMmJmYjczMC1lY2FhLTExZTYtOGY4OC0zNDM2M2JjN2M0YzAiOnsiZGVsZXRlIjoxMjAwMDAwMDAwMDAwfX0="
+        }
+      ]
+    }
+  ],
+  "check_results": [
+    {
+      "object_kind": "var",
+      "config_addr": "var.deploy_mode",
+      "status": "unknown",
+      "objects": null
+    }
+  ]
+}

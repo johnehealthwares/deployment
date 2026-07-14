@@ -152,13 +152,30 @@ EOF
 echo "  Copying nginx config into admin build context..."
 $SSH_CMD "cp /home/ubuntu/develop/deployment/docker/nginx-default.conf /home/ubuntu/develop/deployment/common-admin/ 2>/dev/null && echo '  Done' || echo '  Skipped (no common-admin)'" 2>&1 | tail -1
 
-# ── Build images (with retry for transient Docker Hub errors) ──
+# ── Build images (one at a time, with git info) ─────────────
 echo "--- Build images ---"
 ENV_VARS="AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=$REGION"
-for try in 1 2 3; do
-  $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && sudo $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build ${SERVICES[*]}" 2>&1 && break
-  echo "  Build attempt $try failed, retrying in 10s..."
-  sleep 10
+for svc in "${SERVICES[@]}"; do
+  GH_DIR=""
+  case "$svc" in
+    rxsoft-backend) GH_DIR="rxsoft-backend" ;;
+    ehealthwares) GH_DIR="ehealthwares" ;;
+    rxsoft-identity) GH_DIR="identity" ;;
+    rxsoft-admin) GH_DIR="common-admin" ;;
+    rxsoft-lis-backend) GH_DIR="rxsoft-lis-backend" ;;
+    conversation-engine) GH_DIR="conversation-engine" ;;
+    healthcare-concepts) GH_DIR="common-healthcare-resources" ;;
+    healthcare-interop) GH_DIR="healthcare-interoperability-switch" ;;
+  esac
+  COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
+  MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
+  printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
+  echo "  Building $svc ($COMMIT)..."
+  for try in 1 2 3; do
+    $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && while IFS='=' read -r k v; do export \"\$k\"=\"\$v\"; done < /tmp/git-vars-$svc && sudo -E $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build $svc" 2>&1 && break
+    echo "  Build attempt $try for $svc failed, retrying in 10s..."
+    sleep 10
+  done
 done
 
 # ── Tag + Push to ECR ──────────────────────────────────────

@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
 #──────────────────────────────────────────────────────────────
-# deploy-service.sh — deploy a single service via ECR pipeline:
-#   1. Build (git on build server, or local build, or skip)
-#   2. Pull + restart on the production run instance
+# restart-service.sh — restart a service on the run instance
+# Optionally update env vars via SCP before restarting.
 #
 # Usage:
-#   ./deploy-service.sh <service>                  # build (git on build server) + deploy
-#   ./deploy-service.sh <service> --local          # build locally + deploy
-#   ./deploy-service.sh <service> --skip-build     # just pull + restart
-#   ./deploy-service.sh --list
+#   ./restart-service.sh <service>
+#   ./restart-service.sh --list
 #──────────────────────────────────────────────────────────────
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -19,7 +16,6 @@ IP=$(cat .ec2-ip 2>/dev/null || terraform -chdir=terraform output -raw public_ip
 [ -z "$IP" ] && { echo "Error: no .ec2-ip and terraform output failed"; exit 1; }
 SSH="ssh -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -i $SSH_KEY $SSH_USER@$IP"
 
-# Service name tables: service|context_dir|git_remote|local_path
 SERVICES=(
   "rxsoft-backend|rxsoft-backend|https://github.com/johnehealthwares/rxsoft-backend.git|../rxsoft-backend"
   "rxsoft-lis-backend|rxsoft-lis-backend|https://github.com/johnehealthwares/rxsoft-lis-backend.git|../rxsoft-lis-backend"
@@ -49,22 +45,19 @@ get_field() {
   echo ""
 }
 
-MODE="git"
-SKIP_BUILD=false
 SERVICE=""
-
 for arg in "$@"; do
   case "$arg" in
-    --local) MODE="local" ;;
-    --skip-build) SKIP_BUILD=true ;;
-    --dry-run) DRY_RUN=true ;;
     --list)
       echo "Available services:"
       for entry in "${SERVICES[@]}"; do echo "  ${entry%%|*}"; done
       exit 0
       ;;
     --help)
-      sed -n '3,14p' "$0"
+      echo "Usage: ./restart-service.sh <service>"
+      echo ""
+      echo "Restart a service on the run instance."
+      echo "Prompts whether to update env vars via SCP first."
       exit 0
       ;;
     *)
@@ -74,49 +67,39 @@ for arg in "$@"; do
   esac
 done
 
-[ -z "$SERVICE" ] && { echo "Error: specify a service"; exit 1; }
+[ -z "$SERVICE" ] && { echo "Error: specify a service. Use --list to see available."; exit 1; }
 [ -z "$(get_field "$SERVICE" context)" ] && { echo "Error: unknown service '$SERVICE'"; exit 1; }
 
 DOCKER_DIR="/home/ubuntu/develop/docker"
-echo "=== Deploy: $SERVICE ($MODE) ==="
+echo "=== Restart: $SERVICE ==="
 echo "  Server: $IP"
 
-if [ "${DRY_RUN:-false}" = true ]; then
-  echo "  [DRY-RUN] Would execute: build + ECR push + pull + restart"
-  exit 0
-fi
+# Ask about env vars
+read -p "Update env vars before restarting? (y/N): " answer
+case "${answer:-N}" in
+  [yY]|[yY][eE][sS])
+    ENV_FILE="terraform/.env.$(get_field "$SERVICE" context)"
+    if [ -f "$ENV_FILE" ]; then
+      echo "--- SCP env file for $SERVICE ---"
+      scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -i $SSH_KEY "$ENV_FILE" $SSH_USER@$IP:$DOCKER_DIR/.env.$SERVICE
+    else
+      echo "  No env file found at $ENV_FILE (skipping)"
+    fi
+    ;;
+  *)
+    echo "--- Skipping env update ---"
+    ;;
+esac
 
-# Step 1 — Build + push to ECR
-if [ "$SKIP_BUILD" = true ]; then
-  echo "--- Build skipped (--skip-build) ---"
-elif [ "$MODE" = "local" ]; then
-  echo "--- Step 1: Local build + push ---"
-  "$PWD/build-local-and-push.sh" "$SERVICE" 2>&1
-else
-  echo "--- Step 1: Build server (git) + push ---"
-  "$PWD/build-and-push.sh" "$SERVICE" 2>&1
-fi
-
-# Step 1.5 — SCP env file to server (if one exists)
-echo ""
-ENV_FILE="terraform/.env.$(get_field "$SERVICE" context)"
-if [ -f "$ENV_FILE" ]; then
-  echo "--- Step 1.5: SCP env file for $SERVICE ---"
-  scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -i $SSH_KEY "$ENV_FILE" $SSH_USER@$IP:/home/ubuntu/develop/docker/.env.$SERVICE
-else
-  echo "--- Step 1.5: No env file found for $SERVICE (skipping) ---"
-fi
-
-# Step 2 — pull + restart on run instance
-echo ""
-echo "--- Step 2: Pull + restart on run instance ---"
+# Pull + restart
+echo "--- Pull + restart on server ---"
 AWS_ACCOUNT_ID=$(cd terraform && terraform output -raw aws_account_id)
 $SSH "cd $DOCKER_DIR && sudo AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=eu-west-1 docker compose -f docker-compose.prod.yml --profile $SERVICE pull $SERVICE 2>&1 | tail -1"
-$SSH "cd $DOCKER_DIR && sudo AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=eu-west-1 docker compose -f docker-compose.prod.yml --profile $SERVICE up -d --no-build --no-deps --force-recreate $SERVICE" 2>&1
+$SSH "cd $DOCKER_DIR && sudo AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=eu-west-1 docker compose -f docker-compose.prod.yml --profile $SERVICE up -d --no-build --no-deps $SERVICE" 2>&1
 
-# Step 3 — wait for healthcheck
+# Wait for healthcheck
 echo ""
-echo "--- Step 3: Wait for healthy ---"
+echo "--- Wait for healthy ---"
 sleep 5
 for i in $(seq 1 12); do
   case "$SERVICE" in rxsoft-*) CNAME="$SERVICE" ;; *) CNAME="rxsoft-$SERVICE" ;; esac
@@ -134,7 +117,6 @@ for i in $(seq 1 12); do
   sleep 5
 done
 
-# Step 4 — show status
 echo ""
 echo "=== Final Status ==="
 $SSH "sudo docker ps --filter name='$SERVICE' --format 'table {{.Names}}\t{{.Status}}'"

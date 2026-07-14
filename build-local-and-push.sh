@@ -61,13 +61,18 @@ IMAGE="$REGISTRY_URL/$REPO"
 ABS_CONTEXT="$PWD/$CONTEXT"
 
 echo "=== Build: $SERVICE ==="
-echo "  Context: $ABS_CONTEXT"
-echo "  Dockerfile: docker/$DFILE"
-echo "  Image: $IMAGE"
-echo "  Timestamp: $TIMESTAMP"
+  echo "  Context: $ABS_CONTEXT"
+  echo "  Dockerfile: docker/$DFILE"
+  echo "  Image: $IMAGE"
+  echo "  Timestamp: $TIMESTAMP"
 
-[ ! -d "$ABS_CONTEXT" ] && { echo "Error: context $ABS_CONTEXT not found"; exit 1; }
-[ ! -f "docker/$DFILE" ] && { echo "Error: dockerfile docker/$DFILE not found"; exit 1; }
+  [ ! -d "$ABS_CONTEXT" ] && { echo "Error: context $ABS_CONTEXT not found"; exit 1; }
+  [ ! -f "docker/$DFILE" ] && { echo "Error: dockerfile docker/$DFILE not found"; exit 1; }
+
+  GIT_COMMIT=$(git -C "$ABS_CONTEXT" rev-parse HEAD 2>/dev/null || echo "unknown")
+  GIT_COMMIT_MSG=$(git -C "$ABS_CONTEXT" log -1 --format=%s 2>/dev/null || echo "unknown")
+  echo "  Commit: $GIT_COMMIT"
+  echo "  Message: $GIT_COMMIT_MSG"
 
 # ── Login to ECR ────────────────────────────────────────────
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY_URL"
@@ -75,12 +80,14 @@ aws ecr get-login-password --region "$REGION" | docker login --username AWS --pa
 # ── Build ───────────────────────────────────────────────────
 echo "--- Building $SERVICE ---"
 # NEXT_PUBLIC_* vars must be set at build time for Next.js
+BUILD_ARGS="--build-arg GIT_COMMIT=$GIT_COMMIT --build-arg GIT_COMMIT_MSG=$GIT_COMMIT_MSG"
 if [ "$SERVICE" = "ehealthwares" ]; then
   docker build -f "docker/$DFILE" -t "$IMAGE:latest" \
     --build-arg "NEXT_PUBLIC_API_URL=http://www.ehealthwares.com" \
+    $BUILD_ARGS \
     "$ABS_CONTEXT" 2>&1
 else
-  docker build -f "docker/$DFILE" -t "$IMAGE:latest" "$ABS_CONTEXT" 2>&1
+  docker build -f "docker/$DFILE" -t "$IMAGE:latest" $BUILD_ARGS "$ABS_CONTEXT" 2>&1
 fi
 
 # ── Tag + Push ──────────────────────────────────────────────

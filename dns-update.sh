@@ -52,10 +52,11 @@ ENV_BLOCK=$(awk -v env="$ENV" '
 
 IP_SOURCE=$(echo "$ENV_BLOCK" | grep -E "ip_source:" | sed 's/.*: //' | tr -d '" ')
 
-FRONTEND_NAMES=$(echo "$ENV_BLOCK" | awk '/frontend:/{f=1;next} f && /server_names:/{gsub(/[\[\],]/,""); for(i=2;i<=NF;i++) print $i; exit}')
-# API server names (hardcoded fallback if YAML parsing fails)
-API_NAMES=$(echo "$ENV_BLOCK" | awk '/^      api:/{f=1;next} f && /server_names:/{gsub(/[\[\],]/,""); for(i=2;i<=NF;i++) print $i; exit}')
-[ -z "$API_NAMES" ] && API_NAMES="api"
+SUBDOMAINS=$(echo "$ENV_BLOCK" | awk '
+  /subdomains:/ {found=1; next}
+  found && /^    - / {sub(/^    - /,""); print}
+  found && /^  [a-z]/ && !/subdomains/ {exit}
+')
 
 # ── DDNS hash ────────────────────────────────────────────────
 DDNS_HASH=""
@@ -86,21 +87,9 @@ info "Verifying instance..."
 curl -sS --max-time 5 "http://$IP/" > /dev/null 2>&1 || fail "Cannot reach $IP"
 ok "Instance reachable at http://$IP/"
 
-# ── Collect unique subdomains ────────────────────────────────
-SUBDOMAINS=("@")
-for n in $FRONTEND_NAMES; do
-  [ "$n" = "rxsoft" ] && continue
-  SUBDOMAINS+=("$n")
-done
-for n in $API_NAMES; do
-  seen=false
-  for s in "${SUBDOMAINS[@]}"; do [ "$s" = "$n" ] && seen=true; done
-  $seen || SUBDOMAINS+=("$n")
-done
-
 # ── Update DDNS ──────────────────────────────────────────────
 if [ "$SKIP_DNS" = false ] && [ -n "$DDNS_HASH" ]; then
-  for host in "${SUBDOMAINS[@]}"; do
+  for host in $SUBDOMAINS; do
     URL="${DDNS_URL}?host=${host}&domain=${DOMAIN}&password=${DDNS_HASH}&ip=${IP}"
     if $DRY_RUN; then
       info "[DRY-RUN] Would update: ${host}.${DOMAIN} → ${IP}"
@@ -122,56 +111,117 @@ fi
 if [ "$SKIP_NGINX" = false ]; then
   info "Generating nginx config..."
 
-  FE_NAMES=""
-  for n in $FRONTEND_NAMES; do FE_NAMES="${FE_NAMES}${n}.${DOMAIN} "; done
-  API_SERVERS=""
-  for n in $API_NAMES; do API_SERVERS="${API_SERVERS}${n}.${DOMAIN} "; done
+  # Check which containers are running on the server (to avoid direct proxy_pass failures)
+  RUNNING_CONTAINERS=""
+  if ! $DRY_RUN; then
+    RUNNING_CONTAINERS=$(ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
+      -i "$SSH_KEY" ubuntu@"$IP" "sudo docker ps --format '{{.Names}}' 2>/dev/null || true" 2>/dev/null || true)
+  fi
+  is_running() { echo "$RUNNING_CONTAINERS" | grep -qx "$1"; }
 
-  # Proxy routes (same for both blocks, just different paths)
-  PROXY_ROUTES=$(cat <<'PROXY'
-    location /api/backend/ { proxy_pass http://rxsoft-backend:8080/api/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/identity/ { proxy_pass http://rxsoft-identity:8092/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/lis/ { set $u_lis http://rxsoft-lis-backend:8091/; proxy_pass $u_lis; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/conversation/ { set $u_conv http://rxsoft-conversation-engine:8090/; proxy_pass $u_conv; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/communication/ { proxy_pass http://rxsoft-backend:8080/; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/coding/ { set $u_coding http://healthcare-interop:3000/; proxy_pass $u_coding; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-    location /api/healthcare-concepts/ { set $u_concepts http://rxsoft-healthcare-concepts:3011/; proxy_pass $u_concepts; proxy_set_header Host $host; proxy_set_header X-Real-IP $remote_addr; proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for; proxy_set_header X-Forwarded-Proto $scheme; }
-PROXY
-)
-  # API routes: change location path prefix from /api/ to / but keep proxy_pass unchanged
-  API_ROUTES=$(echo "$PROXY_ROUTES" | sed 's|location /api/|location /|g')
+  # Template function: writes a location block if upstream is running, or a comment otherwise
+  proxy_route() {
+    local location="$1" upstream="$2" container="$3"
+    if [ -z "$RUNNING_CONTAINERS" ] || is_running "$container"; then
+      echo "    location $location { proxy_pass $upstream; include /etc/nginx/proxy_params.conf; }"
+    else
+      echo "    # $location → $upstream (skipped — $container not running)"
+    fi
+  }
 
-  # Write frontend config
-  # NOTE: default.conf (from Docker build) is the catch-all with default_server.
-  # This config matches specific server_names only.
+  # ── Build route blocks ──────────────────────────────────────
+  RXSOFT_ROUTES=$(
+    proxy_route "/api/identity/"     "http://rxsoft-identity:8092/"                 "rxsoft-identity"
+    proxy_route "/api/lis/"          "http://rxsoft-lis-backend:8091/"              "rxsoft-lis-backend"
+    proxy_route "/api/conversation/" "http://rxsoft-conversation-engine:8090/"      "rxsoft-conversation-engine"
+    proxy_route "/api/coding/"       "http://healthcare-interop:3000/"              "rxsoft-healthcare-interop"
+    proxy_route "/api/healthcare-concepts/" "http://rxsoft-healthcare-concepts:3011/"  "rxsoft-healthcare-concepts"
+  )
+  API_ROUTES=$(
+    proxy_route "/identity/"     "http://rxsoft-identity:8092/"                 "rxsoft-identity"
+    proxy_route "/lis/"          "http://rxsoft-lis-backend:8091/"              "rxsoft-lis-backend"
+    proxy_route "/conversation/" "http://rxsoft-conversation-engine:8090/"      "rxsoft-conversation-engine"
+    proxy_route "/coding/"       "http://healthcare-interop:3000/"              "rxsoft-healthcare-interop"
+    proxy_route "/healthcare-concepts/" "http://rxsoft-healthcare-concepts:3011/"  "rxsoft-healthcare-concepts"
+  )
+
+  ANY_RUNNING=$(echo "$RUNNING_CONTAINERS" | grep -c . || true)
+  if [ "$ANY_RUNNING" -eq 0 ] && [ "$DRY_RUN" = false ]; then
+    # If we couldn't check, assume worst-case: only rxsoft-backend and rxsoft-admin are running
+    RXSOFT_ROUTES=""
+    API_ROUTES=""
+  fi
+
+  # ── Generate rxsoft.conf (admin SPA subdomains) ─────────────
   cat > /tmp/rxsoft.conf <<NGINX
 server {
     listen 80;
-    server_name ${FE_NAMES% };
+    server_name rxsoft.$DOMAIN damorex.$DOMAIN apm.$DOMAIN;
     root /usr/share/nginx/html;
     index index.html;
-    resolver 127.0.0.11 valid=30s;
     gzip on;
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_comp_level 6;
-${PROXY_ROUTES}
+
+${RXSOFT_ROUTES}
+    location /api/ { proxy_pass http://rxsoft-backend:8080/api/; include /etc/nginx/proxy_params.conf; }
+
     location / { try_files \$uri \$uri/ /index.html; }
-    location ~* \\.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }
 NGINX
 
-  # Write API config
+  # ── Generate api.conf (api.ehealthwares.com) ────────────────
   cat > /tmp/api.conf <<NGINX
 server {
     listen 80;
-    server_name ${API_SERVERS% };
-    resolver 127.0.0.11 valid=30s;
+    server_name api.$DOMAIN;
     gzip on;
     gzip_types application/json;
     gzip_comp_level 6;
+
 ${API_ROUTES}
+    location / { proxy_pass http://rxsoft-backend:8080/api/; include /etc/nginx/proxy_params.conf; }
 }
 NGINX
+
+  # ── Generate www.conf (www.ehealthwares.com / root) ─────────
+  # Only include if rxsoft-ehealthwares is running (or can't check)
+  if [ -z "$RUNNING_CONTAINERS" ] || is_running "rxsoft-ehealthwares"; then
+    cat > /tmp/www.conf <<NGINX
+server {
+    listen 80;
+    server_name www.$DOMAIN $DOMAIN;
+
+    location / {
+        proxy_pass http://rxsoft-ehealthwares:3000;
+        include /etc/nginx/proxy_params.conf;
+    }
+}
+NGINX
+  else
+    echo "# rxsoft-ehealthwares not running — skipping www.conf" > /tmp/www.conf
+  fi
+
+  # ── Generate websocket.conf (conversation.ehealthwares.com) ─
+  if [ -z "$RUNNING_CONTAINERS" ] || is_running "rxsoft-conversation-engine"; then
+    cat > /tmp/websocket.conf <<NGINX
+server {
+    listen 80;
+    server_name conversation.$DOMAIN;
+
+    location / {
+        proxy_pass http://rxsoft-conversation-engine:8090;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection "upgrade";
+        include /etc/nginx/proxy_params.conf;
+    }
+}
+NGINX
+  else
+    echo "# rxsoft-conversation-engine not running — skipping websocket.conf" > /tmp/websocket.conf
+  fi
 
   ok "Nginx config generated"
   echo ""
@@ -181,6 +231,12 @@ NGINX
   echo "--- api.conf ---"
   cat /tmp/api.conf
   echo ""
+  echo "--- www.conf ---"
+  cat /tmp/www.conf
+  echo ""
+  echo "--- websocket.conf ---"
+  cat /tmp/websocket.conf
+  echo ""
 
   if $DRY_RUN; then
     info "[DRY-RUN] Would deploy to server and reload nginx"
@@ -189,35 +245,40 @@ NGINX
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" "mkdir -p /home/ubuntu/develop/docker/nginx" 2>/dev/null || true
     scp -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
-        -i "$SSH_KEY" /tmp/rxsoft.conf /tmp/api.conf ubuntu@"$IP":/home/ubuntu/develop/docker/nginx/
+        -i "$SSH_KEY" docker/nginx/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/websocket.conf \
+        ubuntu@"$IP":/home/ubuntu/develop/docker/nginx/
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" \
-        "sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+         "sudo docker cp /home/ubuntu/develop/docker/nginx/proxy_params.conf rxsoft-admin:/etc/nginx/proxy_params.conf && \
+         sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-         sudo docker exec rxsoft-admin nginx -s reload" 2>&1
-    ok "Nginx config deployed and reloaded"
+         sudo docker cp /home/ubuntu/develop/docker/nginx/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+         sudo docker cp /home/ubuntu/develop/docker/nginx/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+         if sudo docker exec rxsoft-admin nginx -t 2>&1; then \
+           sudo docker exec rxsoft-admin nginx -s reload && echo 'Nginx reloaded'; \
+         else \
+           echo 'Nginx config error — fix and retry'; exit 1; \
+         fi" 2>&1
+    ok "Nginx config deployed"
   fi
 fi
 
 # ── Verification ─────────────────────────────────────────────
 echo ""
 echo "=== Verification ==="
-for n in $FRONTEND_NAMES; do
+for name in rxsoft api www conversation; do
   C=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" "http://$IP/" 2>/dev/null || echo "fail")
-  ok "${n}.${DOMAIN} → frontend (${C})"
+  ok "${name}.${DOMAIN} → (${C})"
 done
-for n in $API_NAMES; do
-  C=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" "http://$IP/" 2>/dev/null || echo "fail")
-  ok "${n}.${DOMAIN} → API gateway (${C})"
-done
-
-C=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" "http://$IP/api/backend/website/homepage" 2>/dev/null || echo "fail")
-ok "Internal /api/backend/website/homepage → ${C}"
+C=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" "http://$IP/api/website/homepage" 2>/dev/null || echo "fail")
+ok "Internal /api/website/homepage → ${C}"
 
 echo ""
 echo "Done. Wait for DNS propagation (TTL=60), then verify:"
 echo "  curl http://rxsoft.${DOMAIN}"
-echo "  curl http://api.${DOMAIN}/backend/website/homepage"
+echo "  curl http://api.${DOMAIN}/website/homepage"
 echo "  curl http://damorex.${DOMAIN}"
 echo "  curl http://apm.${DOMAIN}"
+echo "  curl http://www.${DOMAIN}"
+echo "  curl http://${DOMAIN}"
 echo "  curl http://conversation.${DOMAIN}"

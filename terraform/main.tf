@@ -68,7 +68,7 @@ resource "aws_security_group" "postgres" {
 
   ingress {
     from_port   = 8080
-    to_port     = 8082
+    to_port     = 8083
     protocol    = "tcp"
     cidr_blocks = ["0.0.0.0/0"]
   }
