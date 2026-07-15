@@ -50,6 +50,12 @@ ssh -i terraform/ssh/id_rsa ubuntu@<IP>
 ./ssh.sh sudo docker exec rxsoft-admin cat /etc/nginx/conf.d/api.conf
 ./ssh.sh sudo docker exec rxsoft-admin cat /etc/nginx/conf.d/www.conf
 
+# View the full loaded config (all files merged, no includes)
+./ssh.sh sudo docker exec rxsoft-admin nginx -T
+
+# Grep for a specific server_name in loaded config
+./ssh.sh sudo docker exec rxsoft-admin nginx -T 2>&1 | grep -A10 'server_name.*damorex'
+
 # Test config validity
 ./ssh.sh sudo docker exec rxsoft-admin nginx -t
 
