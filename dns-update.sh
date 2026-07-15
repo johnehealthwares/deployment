@@ -287,7 +287,8 @@ NGINX
     if [ "${deploy_ans:-S}" = "g" ] || [ "${deploy_ans:-S}" = "G" ]; then
       echo "--- Git pull deployment repo on server ---"
       ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
-          -i "$SSH_KEY" ubuntu@"$IP" "cd $DEPLOY_DIR && sudo git pull" 2>&1 | tail -1
+          -i "$SSH_KEY" ubuntu@"$IP" \
+          "cd $DEPLOY_DIR && sudo git checkout -- docker/nginx/ && sudo git pull" 2>&1 | tail -3
     fi
 
     # ── Deploy generated templates to server + docker cp ─────
