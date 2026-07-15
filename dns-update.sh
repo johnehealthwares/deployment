@@ -107,6 +107,26 @@ else
   info "DNS updates skipped"
 fi
 
+# ── Git push prompt ──────────────────────────────────────────
+if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
+  echo ""
+  echo "  Local deployment repo has uncommitted changes:"
+  git status --short 2>/dev/null | head -10
+  read -p "  Push local changes to git? (Y/n): " push_ans
+  case "${push_ans:-Y}" in
+    [yY]|[yY][eE][sS])
+      git add -A
+      git commit -m "auto: dns/nginx update $(date +%Y%m%d-%H%M)"
+      git push
+      ok "Local changes pushed"
+      ;;
+    *) info "Git push skipped" ;;
+  esac
+fi
+
+NGINX_DIR="/home/ubuntu/develop/docker/nginx"
+DEPLOY_DIR="/home/ubuntu/develop/deployment"
+
 # ── Nginx config ─────────────────────────────────────────────
 if [ "$SKIP_NGINX" = false ]; then
   info "Generating nginx config..."
@@ -175,7 +195,7 @@ NGINX
   cat > /tmp/damorex.conf <<NGINX
 server {
     listen 80;
-    server_name damorex.$DOMAIN;
+    server_name damorex.$DOMAIN damorex.com;
     root /usr/share/nginx/html;
     index index.html;
     gzip on;
@@ -262,20 +282,28 @@ NGINX
     info "[DRY-RUN] Would deploy to server and reload nginx"
   else
     info "Deploying nginx config to server..."
+    read -p "  Deploy from (s)cp / (g)it? (S/g): " deploy_ans
+
+    if [ "${deploy_ans:-S}" = "g" ] || [ "${deploy_ans:-S}" = "G" ]; then
+      echo "--- Git pull deployment repo on server ---"
+      ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
+          -i "$SSH_KEY" ubuntu@"$IP" "cd $DEPLOY_DIR && sudo git pull" 2>&1 | tail -1
+    fi
+
+    # ── Deploy generated templates to server + docker cp ─────
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
-        -i "$SSH_KEY" ubuntu@"$IP" "mkdir -p /home/ubuntu/develop/docker/nginx" 2>/dev/null || true
+        -i "$SSH_KEY" ubuntu@"$IP" "sudo mkdir -p $NGINX_DIR" 2>/dev/null || true
     scp -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" docker/nginx/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/damorex.conf /tmp/websocket.conf \
         ubuntu@"$IP":/tmp/
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" \
-         "sudo mkdir -p /home/ubuntu/develop/docker/nginx && \
-          sudo mv /tmp/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/damorex.conf /tmp/websocket.conf /home/ubuntu/develop/docker/nginx/ && \
-          sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-          sudo docker cp /home/ubuntu/develop/docker/nginx/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-          sudo docker cp /home/ubuntu/develop/docker/nginx/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-          sudo docker cp /home/ubuntu/develop/docker/nginx/damorex.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-          sudo docker cp /home/ubuntu/develop/docker/nginx/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+         "sudo mv /tmp/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/damorex.conf /tmp/websocket.conf $NGINX_DIR/ && \
+          sudo docker cp $NGINX_DIR/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp $NGINX_DIR/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp $NGINX_DIR/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp $NGINX_DIR/damorex.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp $NGINX_DIR/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \
           if sudo docker exec rxsoft-admin nginx -t 2>&1; then \
             sudo docker exec rxsoft-admin nginx -s reload && echo 'Nginx reloaded'; \
           else \
