@@ -156,7 +156,7 @@ if [ "$SKIP_NGINX" = false ]; then
   cat > /tmp/rxsoft.conf <<NGINX
 server {
     listen 80;
-    server_name rxsoft.$DOMAIN damorex.$DOMAIN apm.$DOMAIN;
+    server_name rxsoft.$DOMAIN apm.$DOMAIN;
     root /usr/share/nginx/html;
     index index.html;
     gzip on;
@@ -166,6 +166,23 @@ server {
 ${RXSOFT_ROUTES}
     location /api/ { proxy_pass http://rxsoft-backend:8080/api/; include /etc/nginx/proxy_params.conf; }
 
+    location / { try_files \$uri \$uri/ /index.html; }
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
+}
+NGINX
+
+  # ── Generate damorex.conf (damorex.ehealthwares.com) ────────
+  cat > /tmp/damorex.conf <<NGINX
+server {
+    listen 80;
+    server_name damorex.$DOMAIN;
+    root /usr/share/nginx/html;
+    index index.html;
+    gzip on;
+    gzip_types text/css application/javascript application/json image/svg+xml;
+    gzip_comp_level 6;
+
+    location = / { return 301 /damorex; }
     location / { try_files \$uri \$uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }
@@ -234,6 +251,9 @@ NGINX
   echo "--- www.conf ---"
   cat /tmp/www.conf
   echo ""
+  echo "--- damorex.conf ---"
+  cat /tmp/damorex.conf
+  echo ""
   echo "--- websocket.conf ---"
   cat /tmp/websocket.conf
   echo ""
@@ -245,13 +265,14 @@ NGINX
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" "mkdir -p /home/ubuntu/develop/docker/nginx" 2>/dev/null || true
     scp -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
-        -i "$SSH_KEY" docker/nginx/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/websocket.conf \
+        -i "$SSH_KEY" docker/nginx/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/damorex.conf /tmp/websocket.conf \
         ubuntu@"$IP":/home/ubuntu/develop/docker/nginx/
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" \
          "sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+         sudo docker cp /home/ubuntu/develop/docker/nginx/damorex.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          if sudo docker exec rxsoft-admin nginx -t 2>&1; then \
            sudo docker exec rxsoft-admin nginx -s reload && echo 'Nginx reloaded'; \
@@ -265,7 +286,7 @@ fi
 # ── Verification ─────────────────────────────────────────────
 echo ""
 echo "=== Verification ==="
-for name in rxsoft api www conversation; do
+for name in rxsoft api www damorex conversation; do
   C=$(curl -sS --max-time 5 -o /dev/null -w "%{http_code}" "http://$IP/" 2>/dev/null || echo "fail")
   ok "${name}.${DOMAIN} → (${C})"
 done

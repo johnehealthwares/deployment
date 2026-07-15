@@ -85,6 +85,7 @@ if [ "$ALL" = false ]; then
 fi
 
 DOCKER_DIR="/home/ubuntu/develop/docker"
+DEPLOY_DIR="/home/ubuntu/develop/deployment"
 
 deploy_one() {
   local svc="$1"
@@ -98,25 +99,57 @@ deploy_one() {
     return 0
   fi
 
+  # Prompt 1 — Build before deploy?
+  LOCAL_PATH="$(get_field "$svc" local)"
+  COMMIT=$(git -C "$PWD/$LOCAL_PATH" rev-parse HEAD 2>/dev/null || echo "unknown")
+  MSG=$(git -C "$PWD/$LOCAL_PATH" log -1 --format=%s 2>/dev/null || echo "unknown")
+  echo ""
+  echo "  Service:   $svc"
+  echo "  Mode:      $MODE"
+  echo "  Commit:    ${COMMIT:0:10} — $MSG"
+  if [ "$SKIP_BUILD" = false ]; then
+    read -p "  Build before deploy? (Y/n): " build_ans
+    case "${build_ans:-Y}" in
+      [nN]) echo "  Build skipped."; SKIP_BUILD=true ;;
+      *) ;;
+    esac
+  else
+    echo "  Build: skipped (--skip-build)"
+  fi
+
+  # Prompt 2 — Update env?
+  ENV_CONTEXT="$(get_field "$svc" context)"
+  ENV_FILE="terraform/.env.$ENV_CONTEXT"
+  read -p "  Update env? (s)cp / (g)it / (N)o: " env_ans
+  case "${env_ans:-N}" in
+    [sS])
+      if [ -f "$ENV_FILE" ]; then
+        echo "--- SCP env file for $svc ---"
+        scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -i $SSH_KEY "$ENV_FILE" $SSH_USER@$IP:$DOCKER_DIR/.env.$svc
+      else
+        echo "  No env file found at $ENV_FILE (skipping)"
+      fi
+      ;;
+    [gG])
+      echo "--- Git pull deployment repo on server ---"
+      $SSH "cd $DEPLOY_DIR && sudo git pull"
+      echo "--- Copy env file from repo to docker dir ---"
+      $SSH "sudo cp $DEPLOY_DIR/$ENV_FILE $DOCKER_DIR/.env.$svc"
+      ;;
+    *)
+      echo "--- Skipping env update ---"
+      ;;
+  esac
+
   # Step 1 — Build + push to ECR
   if [ "$SKIP_BUILD" = true ]; then
-    echo "--- Build skipped (--skip-build) ---"
+    echo "--- Build skipped ---"
   elif [ "$MODE" = "local" ]; then
     echo "--- Step 1: Local build + push ---"
     "$PWD/build-local-and-push.sh" "$svc" 2>&1
   else
     echo "--- Step 1: Build server (git) + push ---"
     "$PWD/build-and-push.sh" "$svc" 2>&1
-  fi
-
-  # Step 1.5 — SCP env file to server (if one exists)
-  echo ""
-  ENV_FILE="terraform/.env.$(get_field "$svc" context)"
-  if [ -f "$ENV_FILE" ]; then
-    echo "--- Step 1.5: SCP env file for $svc ---"
-    scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -i $SSH_KEY "$ENV_FILE" $SSH_USER@$IP:/home/ubuntu/develop/docker/.env.$svc
-  else
-    echo "--- Step 1.5: No env file found for $svc (skipping) ---"
   fi
 
   # Step 2 — pull + restart on run instance

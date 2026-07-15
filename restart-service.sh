@@ -94,9 +94,9 @@ case "${answer:-N}" in
     ;;
   [gG])
     echo "--- Git pull deployment repo on server ---"
-    $SSH "cd $DEPLOY_DIR && git pull"
+    $SSH "cd $DEPLOY_DIR && sudo git pull"
     echo "--- Copy env file from repo to docker dir ---"
-    $SSH "cp $DEPLOY_DIR/$ENV_FILE $DOCKER_DIR/.env.$SERVICE"
+    $SSH "sudo cp $DEPLOY_DIR/$ENV_FILE $DOCKER_DIR/.env.$SERVICE"
     ;;
   *)
     echo "--- Skipping env update ---"
