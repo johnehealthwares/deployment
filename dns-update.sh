@@ -207,7 +207,7 @@ server {
 
     rewrite ^/$ /damorex break;
 ${RXSOFT_ROUTES}
-    location /api/ { proxy_pass \$backend:8080/api/; include /etc/nginx/proxy_params.conf; }
+    location /api/ { proxy_pass \$backend/api/; include /etc/nginx/proxy_params.conf; }
     location / { try_files \$uri \$uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }
