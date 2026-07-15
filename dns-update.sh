@@ -249,8 +249,7 @@ NGINX
         ubuntu@"$IP":/home/ubuntu/develop/docker/nginx/
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" \
-         "sudo docker cp /home/ubuntu/develop/docker/nginx/proxy_params.conf rxsoft-admin:/etc/nginx/proxy_params.conf && \
-         sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+         "sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
          sudo docker cp /home/ubuntu/develop/docker/nginx/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \

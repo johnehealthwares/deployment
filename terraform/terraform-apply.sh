@@ -28,7 +28,7 @@ fi
 
 # Check if user_data changed from the current deployment
 USER_DATA_CHANGED=false
-if terraform plan -no-color 2>&1 | grep -q "user_data will be updated"; then
+if terraform plan -no-color 2>&1 | grep -q "user_data"; then
   echo "--- user_data changed → tainting instance for full reprovision ---"
   terraform taint aws_instance.postgres 2>/dev/null || true
   USER_DATA_CHANGED=true

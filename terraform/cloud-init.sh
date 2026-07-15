@@ -46,7 +46,11 @@ for i in $(seq 1 10); do docker info >/dev/null 2>&1 && break; echo "Waiting for
 
 echo "=== Authenticate to ECR ==="
 AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-AWS_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+echo "  Account: $AWS_ACCOUNT_ID"
+# IMDSv2 is required (http_tokens = "required" on this instance)
+IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+AWS_REGION=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" http://169.254.169.254/latest/meta-data/placement/region)
+echo "  Region: $AWS_REGION"
 aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 echo "  ECR authenticated: $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com"
 
@@ -55,9 +59,11 @@ mkdir -p /home/ubuntu/develop
 chown ubuntu:ubuntu /home/ubuntu/develop
 rm -rf /home/ubuntu/develop/deployment
 git clone --depth 1 https://github.com/johnehealthwares/deployment.git /home/ubuntu/develop/deployment
+echo "  Cloned deployment repo"
 chown -R ubuntu:ubuntu /home/ubuntu/develop/deployment
 # Docker config lives in deployment/docker/ — symlink for convenience
 ln -sf /home/ubuntu/develop/deployment/docker /home/ubuntu/develop/docker 2>/dev/null || true
+echo "  Symlink: /home/ubuntu/develop/docker -> /home/ubuntu/develop/deployment/docker"
 
 echo "=== Write backup config ==="
 cat <<'ENVEOF' > /home/ubuntu/develop/docker/.env.backup
@@ -182,9 +188,16 @@ echo "=== Start services ==="
 DEPLOY_MODE=prod
 COMPOSE_FILE="/home/ubuntu/develop/docker/docker-compose.prod.yml"
 export AWS_ACCOUNT_ID AWS_REGION
-docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ pull 2>/dev/null || true
-docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --no-build --wait 2>/dev/null || \
-docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --no-build
+echo "  Compose file: $COMPOSE_FILE"
+echo "  Profile flags: __PROFILE_FLAGS__"
+echo "  Pulling images..."
+docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ pull 2>&1 | tail -5 || echo "  (some images may not exist yet — build if needed)"
+echo "  Starting services..."
+docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --no-build --wait 2>&1 | tail -10 || \
+  (echo "  --wait timed out, retrying without --wait..." && \
+   docker compose -f "$COMPOSE_FILE" --env-file /home/ubuntu/develop/docker/.env.memory __PROFILE_FLAGS__ up -d --no-build 2>&1 | tail -5)
+echo "  Running containers:"
+docker ps --format 'table {{.Names}}\t{{.Status}}'
 
 echo ""
 echo "============================================"

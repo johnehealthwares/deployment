@@ -20,12 +20,13 @@ IAM_PROFILE="rxsoft-profile"
 KEY_NAME="rxsoft-key"
 
 # ── Parse args ──────────────────────────────────────────────
-SERVICE=""; MODE=""
-for arg in "$@"; do
-  case "$arg" in
-    --all) MODE="all" ;;
+SERVICE=""; MODE=""; NO_CACHE=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --all) MODE="all"; shift ;;
+    --no-cache) NO_CACHE="--no-cache"; shift ;;
     --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
-    *) [ -z "$SERVICE" ] && SERVICE="$arg" || { echo "Error: multiple services"; exit 1; } ;;
+    *) [ -z "$SERVICE" ] && SERVICE="$1" && shift || { echo "Error: multiple services"; exit 1; } ;;
   esac
 done
 
@@ -155,6 +156,7 @@ $SSH_CMD "cp /home/ubuntu/develop/deployment/docker/nginx-default.conf /home/ubu
 # ── Build images (one at a time, with git info) ─────────────
 echo "--- Build images ---"
 ENV_VARS="AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=$REGION"
+BUILD_FAILED=false
 for svc in "${SERVICES[@]}"; do
   GH_DIR=""
   case "$svc" in
@@ -170,26 +172,45 @@ for svc in "${SERVICES[@]}"; do
   COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
   MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
   printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
-  echo "  Building $svc ($COMMIT)..."
+    echo "  Building $svc ($COMMIT)... $NO_CACHE"
+  OK=false
   for try in 1 2 3; do
-    $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && while IFS='=' read -r k v; do export \"\$k\"=\"\$v\"; done < /tmp/git-vars-$svc && sudo -E $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build $svc" 2>&1 && break
+    if $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && while IFS='=' read -r k v; do export \"\$k\"=\"\$v\"; done < /tmp/git-vars-$svc && sudo -E $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build $NO_CACHE $svc" 2>&1; then
+      OK=true
+      break
+    fi
     echo "  Build attempt $try for $svc failed, retrying in 10s..."
     sleep 10
   done
+  if [ "$OK" = false ]; then
+    echo "  !! Build failed for $svc, continuing with remaining services..."
+    BUILD_FAILED=true
+  fi
 done
+
+if [ "$BUILD_FAILED" = true ]; then
+  echo "  !! One or more builds failed — check logs above."
+fi
 
 # ── Tag + Push to ECR ──────────────────────────────────────
 echo "--- Tag + push to ECR ---"
-ENV="$REGION"
+PUSH_FAILED=false
 for svc in "${SERVICES[@]}"; do
   REPO=$(ecr_repo_for_service "$svc")
   IMAGE="$REGISTRY_URL/$REPO"
   echo "  $IMAGE:latest + env-$TIMESTAMP"
-  $SSH_CMD "sudo docker tag '$IMAGE:latest' '$IMAGE:env-$TIMESTAMP' && sudo docker push '$IMAGE:latest' && sudo docker push '$IMAGE:env-$TIMESTAMP'" 2>&1 | tail -3
+  if ! $SSH_CMD "sudo docker tag '$IMAGE:latest' '$IMAGE:env-$TIMESTAMP' && sudo docker push '$IMAGE:latest' && sudo docker push '$IMAGE:env-$TIMESTAMP'" 2>&1 | tail -3; then
+    echo "  !! Push failed for $svc, continuing..."
+    PUSH_FAILED=true
+  fi
 done
 
 # ── Terminate ─────────────────────────────────────────────
 echo "--- Terminate build instance ---"
 aws ec2 terminate-instances --region "$REGION" --instance-ids "$INSTANCE_ID" > /dev/null
 echo "  Terminated $INSTANCE_ID"
+if [ "$BUILD_FAILED" = true ] || [ "$PUSH_FAILED" = true ]; then
+  echo "=== Build complete with failures ==="
+  exit 1
+fi
 echo "=== Build complete ==="
