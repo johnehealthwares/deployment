@@ -176,7 +176,7 @@ if [ "$SKIP_NGINX" = false ]; then
   cat > /tmp/rxsoft.conf <<NGINX
 server {
     listen 80;
-    server_name rxsoft.$DOMAIN apm.$DOMAIN;
+    server_name rxsoft.$DOMAIN app.$DOMAIN apm.$DOMAIN;
     root /usr/share/nginx/html;
     index index.html;
     gzip on;
