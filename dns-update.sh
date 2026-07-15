@@ -182,7 +182,7 @@ server {
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_comp_level 6;
 
-    location = / { return 301 /damorex; }
+    rewrite ^/$ /damorex break;
     location / { try_files \$uri \$uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }
@@ -266,19 +266,21 @@ NGINX
         -i "$SSH_KEY" ubuntu@"$IP" "mkdir -p /home/ubuntu/develop/docker/nginx" 2>/dev/null || true
     scp -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" docker/nginx/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/damorex.conf /tmp/websocket.conf \
-        ubuntu@"$IP":/home/ubuntu/develop/docker/nginx/
+        ubuntu@"$IP":/tmp/
     ssh -q -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
         -i "$SSH_KEY" ubuntu@"$IP" \
-         "sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-         sudo docker cp /home/ubuntu/develop/docker/nginx/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-         sudo docker cp /home/ubuntu/develop/docker/nginx/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-         sudo docker cp /home/ubuntu/develop/docker/nginx/damorex.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-         sudo docker cp /home/ubuntu/develop/docker/nginx/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \
-         if sudo docker exec rxsoft-admin nginx -t 2>&1; then \
-           sudo docker exec rxsoft-admin nginx -s reload && echo 'Nginx reloaded'; \
-         else \
-           echo 'Nginx config error — fix and retry'; exit 1; \
-         fi" 2>&1
+         "sudo mkdir -p /home/ubuntu/develop/docker/nginx && \
+          sudo mv /tmp/proxy_params.conf /tmp/rxsoft.conf /tmp/api.conf /tmp/www.conf /tmp/damorex.conf /tmp/websocket.conf /home/ubuntu/develop/docker/nginx/ && \
+          sudo docker cp /home/ubuntu/develop/docker/nginx/rxsoft.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp /home/ubuntu/develop/docker/nginx/api.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp /home/ubuntu/develop/docker/nginx/www.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp /home/ubuntu/develop/docker/nginx/damorex.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          sudo docker cp /home/ubuntu/develop/docker/nginx/websocket.conf rxsoft-admin:/etc/nginx/conf.d/ && \
+          if sudo docker exec rxsoft-admin nginx -t 2>&1; then \
+            sudo docker exec rxsoft-admin nginx -s reload && echo 'Nginx reloaded'; \
+          else \
+            echo 'Nginx config error — fix and retry'; exit 1; \
+          fi" 2>&1
     ok "Nginx config deployed"
   fi
 fi
