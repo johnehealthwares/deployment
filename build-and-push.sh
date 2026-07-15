@@ -4,8 +4,10 @@
 # clone repos, build Docker images, push to ECR, terminate.
 #
 # Usage:
-#   ./build-and-push.sh --all              # build all 8 services
-#   ./build-and-push.sh rxsoft-backend     # build single service
+#   ./build-and-push.sh --all                    # build all 8 services
+#   ./build-and-push.sh rxsoft-backend           # build single service
+#   ./build-and-push.sh --commits              # show commits for all services
+#   ./build-and-push.sh rxsoft-backend --commits # show commits for one service
 #   ./build-and-push.sh --list
 #──────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -20,17 +22,21 @@ IAM_PROFILE="rxsoft-profile"
 KEY_NAME="rxsoft-key"
 
 # ── Parse args ──────────────────────────────────────────────
-SERVICE=""; MODE=""; NO_CACHE=""
+SERVICE=""; MODE=""; NO_CACHE=""; COMMITS_ONLY=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --all) MODE="all"; shift ;;
     --no-cache) NO_CACHE="--no-cache"; shift ;;
+    --commits) COMMITS_ONLY="1"; shift ;;
     --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
     *) [ -z "$SERVICE" ] && SERVICE="$1" && shift || { echo "Error: multiple services"; exit 1; } ;;
   esac
 done
 
-if [ -z "$MODE" ] && [ -z "$SERVICE" ]; then echo "Error: specify --all or a service name"; exit 1; fi
+if [ -z "$MODE" ] && [ -z "$SERVICE" ]; then
+  # Default to --all if --commits is passed without a service
+  [ -n "$COMMITS_ONLY" ] && MODE="all" || { echo "Error: specify --all or a service name"; exit 1; }
+fi
 
 SERVICES=()
 if [ "$MODE" = "all" ]; then
@@ -125,6 +131,33 @@ for entry in "${REPO_MAP[@]}"; do
   $SSH_CMD "cd /home/ubuntu/develop/deployment && git clone --depth 1 https://github.com/johnehealthwares/$gh.git $dir" 2>&1 | tail -1
 done
 
+# ── Show commits ────────────────────────────────────────────
+echo "--- Commit info ---"
+for svc in "${SERVICES[@]}"; do
+  GH_DIR=""
+  case "$svc" in
+    rxsoft-backend) GH_DIR="rxsoft-backend" ;;
+    ehealthwares) GH_DIR="ehealthwares" ;;
+    rxsoft-identity) GH_DIR="identity" ;;
+    rxsoft-admin) GH_DIR="common-admin" ;;
+    rxsoft-lis-backend) GH_DIR="rxsoft-lis-backend" ;;
+    conversation-engine) GH_DIR="conversation-engine" ;;
+    healthcare-concepts) GH_DIR="common-healthcare-resources" ;;
+    healthcare-interop) GH_DIR="healthcare-interoperability-switch" ;;
+  esac
+  COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
+  MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
+  echo "  $svc: ${COMMIT:0:10} — $MSG"
+done
+
+# Exit early if --commits-only
+if [ -n "$COMMITS_ONLY" ]; then
+  echo "--- Commits only (--commits), skipping build ---"
+  aws ec2 terminate-instances --region "$REGION" --instance-ids "$INSTANCE_ID" > /dev/null
+  echo "  Terminated $INSTANCE_ID"
+  exit 0
+fi
+
 # ── Fix missing build files ──────────────────────────────────
 echo "--- Fix missing build files ---"
 $SSH_CMD "bash -c '
@@ -171,8 +204,8 @@ for svc in "${SERVICES[@]}"; do
   esac
   COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
   MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
-  printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
-    echo "  Building $svc ($COMMIT)... $NO_CACHE"
+    printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
+    echo "  Building $svc (${COMMIT:0:10} — $MSG)... $NO_CACHE"
   OK=false
   for try in 1 2 3; do
     if $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && while IFS='=' read -r k v; do export \"\$k\"=\"\$v\"; done < /tmp/git-vars-$svc && sudo -E $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build $NO_CACHE $svc" 2>&1; then

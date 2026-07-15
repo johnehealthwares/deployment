@@ -75,16 +75,28 @@ echo "=== Restart: $SERVICE ==="
 echo "  Server: $IP"
 
 # Ask about env vars
-read -p "Update env vars before restarting? (y/N): " answer
+DEPLOY_DIR="/home/ubuntu/develop/deployment"
+ENV_CONTEXT="$(get_field "$SERVICE" context)"
+ENV_FILE="terraform/.env.$ENV_CONTEXT"
+echo "Update env vars for $SERVICE?"
+echo "  [s] SCP local env file to server"
+echo "  [g] Git pull deployment repo on server"
+echo "  [N] No, just restart"
+read -p "Choice (s/g/N): " answer
 case "${answer:-N}" in
-  [yY]|[yY][eE][sS])
-    ENV_FILE="terraform/.env.$(get_field "$SERVICE" context)"
+  [sS])
     if [ -f "$ENV_FILE" ]; then
       echo "--- SCP env file for $SERVICE ---"
       scp -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null -i $SSH_KEY "$ENV_FILE" $SSH_USER@$IP:$DOCKER_DIR/.env.$SERVICE
     else
       echo "  No env file found at $ENV_FILE (skipping)"
     fi
+    ;;
+  [gG])
+    echo "--- Git pull deployment repo on server ---"
+    $SSH "cd $DEPLOY_DIR && git pull"
+    echo "--- Copy env file from repo to docker dir ---"
+    $SSH "cp $DEPLOY_DIR/$ENV_FILE $DOCKER_DIR/.env.$SERVICE"
     ;;
   *)
     echo "--- Skipping env update ---"
@@ -95,7 +107,7 @@ esac
 echo "--- Pull + restart on server ---"
 AWS_ACCOUNT_ID=$(cd terraform && terraform output -raw aws_account_id)
 $SSH "cd $DOCKER_DIR && sudo AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=eu-west-1 docker compose -f docker-compose.prod.yml --profile $SERVICE pull $SERVICE 2>&1 | tail -1"
-$SSH "cd $DOCKER_DIR && sudo AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=eu-west-1 docker compose -f docker-compose.prod.yml --profile $SERVICE up -d --no-build --no-deps $SERVICE" 2>&1
+$SSH "cd $DOCKER_DIR && sudo AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=eu-west-1 docker compose -f docker-compose.prod.yml --profile $SERVICE up -d --no-build --no-deps --force-recreate $SERVICE" 2>&1
 
 # Wait for healthcheck
 echo ""

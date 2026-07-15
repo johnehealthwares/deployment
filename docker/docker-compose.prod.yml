@@ -106,7 +106,6 @@ services:
       DB_SYNCHRONIZE: "true"
       NODE_ENV: production
       MONGODB_URI: "mongodb://admin:admin123@mongodb:27017/apm_campaign?authSource=admin&directConnection=true"
-      SEED_ON_START: "false"
       JWT_ACCESS_SECRET: admin-access-secret
       JWT_REFRESH_SECRET: admin-refresh-secret
       INTERNAL_API_KEY: rxsoft-internal-key

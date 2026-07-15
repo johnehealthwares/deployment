@@ -96,12 +96,12 @@ scp -i terraform/ssh/id_rsa docker/nginx-default.conf ubuntu@<IP>:/home/ubuntu/d
 ./ssh.sh sudo docker logs rxsoft-admin --tail 20
 ./ssh.sh sudo docker logs rxsoft-ehealthwares --tail 20
 
-# Restart single service
-./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml --env-file /home/ubuntu/develop/docker/.env.memory up -d --no-deps <service>
+# Restart single service (--force-recreate picks up .env file changes)
+./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml --env-file /home/ubuntu/develop/docker/.env.memory up -d --no-deps --force-recreate <service>
 
 # Rebuild single service (use --no-cache for fresh build)
 ./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml build --no-cache <service>
-./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml up -d --no-deps <service>
+./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml up -d --no-deps --force-recreate <service>
 ```
 
 ## Health Check
@@ -143,6 +143,42 @@ curl -s -o /dev/null -w "%{http_code}" http://<IP>/api/identity/
 ```bash
 # Build one at a time
 ./ssh.sh sudo COMPOSE_PARALLEL_LIMIT=1 docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml up -d <service>
+```
+
+### Env file changes not picked up after restart
+Docker Compose doesn't detect when a `.env.<service>` file's *content* changes (only the file path reference in `env_file:` matters). Use `--force-recreate` to force the container to be re-created and read the updated env file.
+
+```bash
+# Single service — picks up new values from the .env file
+./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml \
+  --env-file /home/ubuntu/develop/docker/.env.memory up -d --no-deps --force-recreate <service>
+
+# Shortcut via restart-service.sh (already patched with --force-recreate)
+./restart-service.sh <service>
+
+# Verify the new values took effect
+./ssh.sh sudo docker exec <container> env | sort
+
+# Or using plain docker (bypass compose): stop, rm, re-run with --env-file
+./ssh.sh sudo docker stop rxsoft-backend
+./ssh.sh sudo docker rm rxsoft-backend
+./ssh.sh sudo docker run -d --name rxsoft-backend \
+  --env-file /home/ubuntu/develop/docker/.env.rxsoft-backend \
+  --network rxsoft --restart unless-stopped \
+  -p 8000:8080 \
+  \$AWS_ACCOUNT_ID.dkr.ecr.\$AWS_REGION.amazonaws.com/rxsoft-backend:latest
+```
+
+### ECR 403 Forbidden on pull (expired auth token)
+ECR login tokens expire after 12 hours. It also happens if the instance's IAM role lacks `ecr:GetDownloadUrlForLayer`, `ecr:BatchGetImage`, `ecr:BatchCheckLayerAvailability`.
+
+```bash
+# Re-authenticate Docker to ECR (use ssh -t for sudo tty)
+ssh -t -i terraform/ssh/id_rsa ubuntu@$(cat .ec2-ip) \
+  "sudo aws ecr get-login-password --region eu-west-1 | sudo docker login --username AWS --password-stdin 750906968644.dkr.ecr.eu-west-1.amazonaws.com"
+
+# Verify
+./ssh.sh sudo docker pull 750906968644.dkr.ecr.eu-west-1.amazonaws.com/rxsoft-backend:latest
 ```
 
 ### Re-run cloud-init after script change
