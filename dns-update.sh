@@ -202,7 +202,12 @@ server {
     gzip_types text/css application/javascript application/json image/svg+xml;
     gzip_comp_level 6;
 
+    resolver 127.0.0.11 valid=30s;
+    set \$backend http://rxsoft-backend:8080;
+
     rewrite ^/$ /damorex break;
+${RXSOFT_ROUTES}
+    location /api/ { proxy_pass \$backend:8080/damorex/; include /etc/nginx/proxy_params.conf; }
     location / { try_files \$uri \$uri/ /index.html; }
     location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2)$ { expires 1y; add_header Cache-Control "public, immutable"; }
 }
