@@ -153,7 +153,7 @@ if [ "$SKIP_NGINX" = false ]; then
   RXSOFT_ROUTES=$(
     proxy_route "/api/identity/"     "http://rxsoft-identity:8092/"                 "rxsoft-identity"
     proxy_route "/api/lis/"          "http://rxsoft-lis-backend:8091/"              "rxsoft-lis-backend"
-    proxy_route "/api/conversation/" "http://rxsoft-conversation-engine:8090/api"      "rxsoft-conversation-engine"
+    proxy_route "/api/conversation/" "http://rxsoft-conversation-engine:8090/api/"      "rxsoft-conversation-engine"
     proxy_route "/api/coding/"       "http://healthcare-interop:3000/"              "rxsoft-healthcare-interop"
     proxy_route "/api/healthcare-concepts/" "http://rxsoft-healthcare-concepts:3011/"  "rxsoft-healthcare-concepts"
   )
