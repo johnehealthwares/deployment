@@ -186,10 +186,17 @@ EOF
 echo "  Copying nginx config into admin build context..."
 $SSH_CMD "cp /home/ubuntu/develop/deployment/docker/nginx-default.conf /home/ubuntu/develop/deployment/common-admin/ 2>/dev/null && echo '  Done' || echo '  Skipped (no common-admin)'" 2>&1 | tail -1
 
-# ── Build images (one at a time, with git info) ─────────────
+# ── Helper: check if commit image exists in ECR ─────────────
+commit_exists_in_ecr() {
+  local repo="$1" sha="$2"
+  aws ecr describe-images --region "$REGION" --repository-name "$repo" --image-ids "imageTag=commit-$sha" > /dev/null 2>&1
+}
+
+# ── Build images (one at a time, with git info + commit check) ─
 echo "--- Build images ---"
 ENV_VARS="AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=$REGION"
 BUILD_FAILED=false
+BUILD_SKIPPED=()
 for svc in "${SERVICES[@]}"; do
   GH_DIR=""
   case "$svc" in
@@ -204,8 +211,17 @@ for svc in "${SERVICES[@]}"; do
   esac
   COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
   MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
-    printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
-    echo "  Building $svc (${COMMIT:0:10} — $MSG)... $NO_CACHE"
+  REPO=$(ecr_repo_for_service "$svc")
+  printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
+
+  # Check if this commit already exists in ECR
+  if [ -z "${NO_CACHE:-}" ] && [ "$COMMIT" != "unknown" ] && commit_exists_in_ecr "$REPO" "$COMMIT"; then
+    echo "  $svc commit ${COMMIT:0:10} already in ECR — skipping build"
+    BUILD_SKIPPED+=("$svc")
+    continue
+  fi
+
+  echo "  Building $svc (${COMMIT:0:10} — $MSG)..."
   OK=false
   for try in 1 2 3; do
     if $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && while IFS='=' read -r k v; do export \"\$k\"=\"\$v\"; done < /tmp/git-vars-$svc && sudo -E $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build $NO_CACHE $svc" 2>&1; then
@@ -231,8 +247,20 @@ PUSH_FAILED=false
 for svc in "${SERVICES[@]}"; do
   REPO=$(ecr_repo_for_service "$svc")
   IMAGE="$REGISTRY_URL/$REPO"
-  echo "  $IMAGE:latest + env-$TIMESTAMP"
-  if ! $SSH_CMD "sudo docker tag '$IMAGE:latest' '$IMAGE:env-$TIMESTAMP' && sudo docker push '$IMAGE:latest' && sudo docker push '$IMAGE:env-$TIMESTAMP'" 2>&1 | tail -3; then
+  COMMIT=$($SSH_CMD "grep '^GIT_COMMIT=' /tmp/git-vars-$svc 2>/dev/null | cut -d= -f2 || echo unknown")
+  echo "  $IMAGE:latest + commit-${COMMIT:0:10} + env-$TIMESTAMP"
+
+  # For skipped services: pull the existing commit image, then re-tag
+  if [[ " ${BUILD_SKIPPED[*]} " == *" $svc "* ]]; then
+    echo "  Pulling existing commit image..."
+    $SSH_CMD "sudo docker pull '$IMAGE:commit-$COMMIT'" 2>&1 | tail -1
+    $SSH_CMD "sudo docker tag '$IMAGE:commit-$COMMIT' '$IMAGE:latest' && sudo docker tag '$IMAGE:commit-$COMMIT' '$IMAGE:env-$TIMESTAMP'" 2>&1
+    $SSH_CMD "sudo docker push '$IMAGE:latest' && sudo docker push '$IMAGE:env-$TIMESTAMP'" 2>&1 | tail -2
+    continue
+  fi
+
+  # For built services: tag commit + env, push all
+  if ! $SSH_CMD "sudo docker tag '$IMAGE:latest' '$IMAGE:commit-$COMMIT' && sudo docker tag '$IMAGE:latest' '$IMAGE:env-$TIMESTAMP' && sudo docker push '$IMAGE:commit-$COMMIT' && sudo docker push '$IMAGE:latest' && sudo docker push '$IMAGE:env-$TIMESTAMP'" 2>&1 | tail -5; then
     echo "  !! Push failed for $svc, continuing..."
     PUSH_FAILED=true
   fi

@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 #──────────────────────────────────────────────────────────────
 # build-local-and-push.sh — build a single service Docker image
-# locally on the Mac and push to ECR.
+# locally on the Mac and push to ECR. Skips build if current
+# commit already exists in ECR (tagged commit-<sha>).
 #
 # Usage:
 #   ./build-local-and-push.sh rxsoft-backend
 #   ./build-local-and-push.sh ehealthwares
+#   ./build-local-and-push.sh --no-cache rxsoft-backend
 #   ./build-local-and-push.sh --list
 #──────────────────────────────────────────────────────────────
 set -euo pipefail
@@ -14,10 +16,11 @@ cd "$(dirname "$0")"
 REGION="eu-west-1"
 
 # ── Parse args ──────────────────────────────────────────────
-SERVICE=""
+SERVICE=""; NO_CACHE=""
 for arg in "$@"; do
   case "$arg" in
     --list) echo "Services: rxsoft-backend rxsoft-identity rxsoft-admin ehealthwares rxsoft-lis-backend conversation-engine healthcare-concepts healthcare-interop"; exit 0 ;;
+    --no-cache) NO_CACHE="1" ;;
     *) [ -z "$SERVICE" ] && SERVICE="$arg" || { echo "Error: multiple services"; exit 1; } ;;
   esac
 done
@@ -52,7 +55,6 @@ AWS_ACCOUNT_ID=$(terraform output -raw aws_account_id)
 REGISTRY_URL=$(terraform output -raw ecr_registry_url)
 cd "$OLDPWD"
 TIMESTAMP=$(date +%Y%m%d-%H%M)
-# Map service name to ECR repo name (may differ)
 case "$SERVICE" in
   ehealthwares) REPO="rxsoft-ehealthwares" ;;
   *) REPO="$SERVICE" ;;
@@ -61,25 +63,44 @@ IMAGE="$REGISTRY_URL/$REPO"
 ABS_CONTEXT="$PWD/$CONTEXT"
 
 echo "=== Build: $SERVICE ==="
-  echo "  Context: $ABS_CONTEXT"
-  echo "  Dockerfile: docker/$DFILE"
-  echo "  Image: $IMAGE"
-  echo "  Timestamp: $TIMESTAMP"
+echo "  Context: $ABS_CONTEXT"
+echo "  Dockerfile: docker/$DFILE"
+echo "  Image: $IMAGE"
+echo "  Timestamp: $TIMESTAMP"
 
-  [ ! -d "$ABS_CONTEXT" ] && { echo "Error: context $ABS_CONTEXT not found"; exit 1; }
-  [ ! -f "docker/$DFILE" ] && { echo "Error: dockerfile docker/$DFILE not found"; exit 1; }
+[ ! -d "$ABS_CONTEXT" ] && { echo "Error: context $ABS_CONTEXT not found"; exit 1; }
+[ ! -f "docker/$DFILE" ] && { echo "Error: dockerfile docker/$DFILE not found"; exit 1; }
 
-  GIT_COMMIT=$(git -C "$ABS_CONTEXT" rev-parse HEAD 2>/dev/null || echo "unknown")
-  GIT_COMMIT_MSG=$(git -C "$ABS_CONTEXT" log -1 --format=%s 2>/dev/null || echo "unknown")
-  echo "  Commit: $GIT_COMMIT"
-  echo "  Message: $GIT_COMMIT_MSG"
+GIT_COMMIT=$(git -C "$ABS_CONTEXT" rev-parse HEAD 2>/dev/null || echo "unknown")
+GIT_COMMIT_MSG=$(git -C "$ABS_CONTEXT" log -1 --format=%s 2>/dev/null || echo "unknown")
+echo "  Commit: ${GIT_COMMIT:0:10} — $GIT_COMMIT_MSG"
+
+# ── Check if commit already exists in ECR ───────────────────
+SKIP_BUILD=false
+if [ -z "${NO_CACHE:-}" ] && [ "$GIT_COMMIT" != "unknown" ]; then
+  if aws ecr describe-images --region "$REGION" --repository-name "$REPO" --image-ids "imageTag=commit-$GIT_COMMIT" > /dev/null 2>&1; then
+    echo "  commit-$GIT_COMMIT already exists in ECR — skipping build"
+    SKIP_BUILD=true
+  fi
+fi
 
 # ── Login to ECR ────────────────────────────────────────────
 aws ecr get-login-password --region "$REGION" | docker login --username AWS --password-stdin "$REGISTRY_URL"
 
+if [ "$SKIP_BUILD" = true ]; then
+  # Pull the existing commit image and re-tag
+  echo "--- Pulling existing commit image and re-tagging ---"
+  docker pull "$IMAGE:commit-$GIT_COMMIT" 2>&1 | tail -1
+  docker tag "$IMAGE:commit-$GIT_COMMIT" "$IMAGE:latest"
+  docker tag "$IMAGE:commit-$GIT_COMMIT" "$IMAGE:env-$TIMESTAMP"
+  docker push "$IMAGE:latest" 2>&1 | tail -1
+  docker push "$IMAGE:env-$TIMESTAMP" 2>&1 | tail -1
+  echo "=== Done: $IMAGE:latest (re-tagged from commit-$GIT_COMMIT) ==="
+  exit 0
+fi
+
 # ── Build ───────────────────────────────────────────────────
 echo "--- Building $SERVICE ---"
-# NEXT_PUBLIC_* vars must be set at build time for Next.js
 BUILD_ARGS="--build-arg GIT_COMMIT=$GIT_COMMIT --build-arg GIT_COMMIT_MSG=$GIT_COMMIT_MSG"
 if [ "$SERVICE" = "ehealthwares" ]; then
   docker build -f "docker/$DFILE" -t "$IMAGE:latest" \
@@ -92,8 +113,10 @@ fi
 
 # ── Tag + Push ──────────────────────────────────────────────
 echo "--- Tag + push ---"
+docker tag "$IMAGE:latest" "$IMAGE:commit-$GIT_COMMIT"
 docker tag "$IMAGE:latest" "$IMAGE:env-$TIMESTAMP"
+docker push "$IMAGE:commit-$GIT_COMMIT" 2>&1 | tail -1
 docker push "$IMAGE:latest" 2>&1 | tail -1
 docker push "$IMAGE:env-$TIMESTAMP" 2>&1 | tail -1
 
-echo "=== Done: $IMAGE:latest ==="
+echo "=== Done: $IMAGE:latest (commit-$GIT_COMMIT) ==="
