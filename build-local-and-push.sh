@@ -79,11 +79,23 @@ echo "  Commit: ${GIT_COMMIT:0:10} on $GIT_BRANCH from $GIT_REMOTE"
 echo "  Message: $GIT_COMMIT_MSG"
 echo "  Hash: $GIT_COMMIT"
 
+# ── Check for uncommitted changes ───────────────────────────
+UNCOMMITTED=$(git -C "$ABS_CONTEXT" status --porcelain 2>/dev/null || true)
+DIRTY=false
+if [ -n "$UNCOMMITTED" ]; then
+  DIRTY=true
+  echo "  ⚠ Uncommitted changes:"
+  echo "$UNCOMMITTED" | sed 's/^/    /'
+fi
+
+SUFFIX=""; if [ "$DIRTY" = true ]; then SUFFIX="-local"; fi
+
 # ── Check if commit already exists in ECR ───────────────────
 SKIP_BUILD=false
+ECR_TAG="commit-$GIT_COMMIT$SUFFIX"
 if [ -z "${NO_CACHE:-}" ] && [ "$GIT_COMMIT" != "unknown" ]; then
-  if aws ecr describe-images --region "$REGION" --repository-name "$REPO" --image-ids "imageTag=commit-$GIT_COMMIT" > /dev/null 2>&1; then
-    echo "  commit-$GIT_COMMIT already exists in ECR — skipping build"
+  if aws ecr describe-images --region "$REGION" --repository-name "$REPO" --image-ids "imageTag=$ECR_TAG" > /dev/null 2>&1; then
+    echo "  $ECR_TAG already exists in ECR — skipping build"
     SKIP_BUILD=true
   fi
 fi
@@ -94,33 +106,33 @@ aws ecr get-login-password --region "$REGION" | docker login --username AWS --pa
 if [ "$SKIP_BUILD" = true ]; then
   # Pull the existing commit image and re-tag
   echo "--- Pulling existing commit image and re-tagging ---"
-  docker pull "$IMAGE:commit-$GIT_COMMIT" 2>&1 | tail -1
-  docker tag "$IMAGE:commit-$GIT_COMMIT" "$IMAGE:latest"
-  docker tag "$IMAGE:commit-$GIT_COMMIT" "$IMAGE:env-$TIMESTAMP"
-  docker push "$IMAGE:latest" 2>&1 | tail -1
-  docker push "$IMAGE:env-$TIMESTAMP" 2>&1 | tail -1
-  echo "=== Done: $IMAGE:latest (re-tagged from commit-$GIT_COMMIT) ==="
+  docker pull "$IMAGE:$ECR_TAG" 2>&1 | tail -1
+  docker tag "$IMAGE:$ECR_TAG" "$IMAGE:latest$SUFFIX"
+  docker tag "$IMAGE:$ECR_TAG" "$IMAGE:env-$TIMESTAMP$SUFFIX"
+  docker push "$IMAGE:latest$SUFFIX" 2>&1 | tail -1
+  docker push "$IMAGE:env-$TIMESTAMP$SUFFIX" 2>&1 | tail -1
+  echo "=== Done: $IMAGE:latest$SUFFIX (re-tagged from $ECR_TAG) ==="
   exit 0
 fi
 
 # ── Build ───────────────────────────────────────────────────
 echo "--- Building $SERVICE ---"
-BUILD_ARGS="--build-arg GIT_COMMIT=$GIT_COMMIT --build-arg GIT_COMMIT_MSG=$GIT_COMMIT_MSG --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_REMOTE=$GIT_REMOTE"
+BUILD_ARGS=(--build-arg "GIT_COMMIT=$GIT_COMMIT" --build-arg "GIT_COMMIT_MSG=$GIT_COMMIT_MSG" --build-arg "GIT_BRANCH=$GIT_BRANCH" --build-arg "GIT_REMOTE=$GIT_REMOTE")
 if [ "$SERVICE" = "ehealthwares" ]; then
   docker build -f "docker/$DFILE" -t "$IMAGE:latest" \
     --build-arg "NEXT_PUBLIC_API_URL=http://www.ehealthwares.com" \
-    $BUILD_ARGS \
+    "${BUILD_ARGS[@]}" \
     "$ABS_CONTEXT" 2>&1
 else
-  docker build -f "docker/$DFILE" -t "$IMAGE:latest" $BUILD_ARGS "$ABS_CONTEXT" 2>&1
+  docker build -f "docker/$DFILE" -t "$IMAGE:latest" "${BUILD_ARGS[@]}" "$ABS_CONTEXT" 2>&1
 fi
 
 # ── Tag + Push ──────────────────────────────────────────────
 echo "--- Tag + push ---"
-docker tag "$IMAGE:latest" "$IMAGE:commit-$GIT_COMMIT"
-docker tag "$IMAGE:latest" "$IMAGE:env-$TIMESTAMP"
-docker push "$IMAGE:commit-$GIT_COMMIT" 2>&1 | tail -1
+docker tag "$IMAGE:latest" "$IMAGE:commit-$GIT_COMMIT$SUFFIX"
+docker tag "$IMAGE:latest" "$IMAGE:env-$TIMESTAMP$SUFFIX"
+docker push "$IMAGE:commit-$GIT_COMMIT$SUFFIX" 2>&1 | tail -1
 docker push "$IMAGE:latest" 2>&1 | tail -1
-docker push "$IMAGE:env-$TIMESTAMP" 2>&1 | tail -1
+docker push "$IMAGE:env-$TIMESTAMP$SUFFIX" 2>&1 | tail -1
 
-echo "=== Done: $IMAGE:latest (commit-$GIT_COMMIT) ==="
+echo "=== Done: $IMAGE:latest ($ECR_TAG) ==="

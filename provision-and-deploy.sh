@@ -49,6 +49,7 @@ fi
 cd "$SCRIPT_DIR"
 
 # ── Phase 2: Build & Push ──────────────────────────────────
+BUILD_FAILED=false
 if [ "$SKIP_BUILD" = false ]; then
   echo ""
   echo "=== Phase 2: Build & push images ==="
@@ -57,11 +58,11 @@ if [ "$SKIP_BUILD" = false ]; then
     echo "  Building locally (one at a time)..."
     for svc in "${SERVICES[@]}"; do
       echo "--- Building $svc ---"
-      ./build-local-and-push.sh "$svc"
+      ./build-local-and-push.sh "$svc" || { echo "  !! Build failed for $svc, continuing..."; BUILD_FAILED=true; }
     done
   else
     echo "  Building on spot instance..."
-    ./build-and-push.sh --all
+    ./build-and-push.sh --all || { echo "  !! Build phase failed, continuing with deploy..."; BUILD_FAILED=true; }
   fi
 else
   echo ""
@@ -91,10 +92,11 @@ echo "  Waiting for cloud-init to finish..."
 $SSH_CMD "cloud-init status --wait 2>&1 | tail -1" 2>&1 || true
 echo "  Cloud-init complete."
 
-# ── Phase 4: DNS Update ────────────────────────────────────
+# ── Phase 4: Deploy databases ──────────────────────────────
 echo ""
-echo "=== Phase 4: DNS update + nginx config ==="
-./dns-update.sh
+echo "=== Phase 4: Deploy databases ==="
+cd "$SCRIPT_DIR"
+./deploy_databases.sh || { echo "  !! Databases failed to start. Aborting."; exit 1; }
 
 # ── Phase 5: Deploy services ───────────────────────────────
 echo ""
@@ -103,6 +105,11 @@ for svc in "${SERVICES[@]}"; do
   echo "--- Deploying $svc ---"
   ./deploy-service.sh "$svc" --skip-build
 done
+
+# ── Phase 6: DNS Update ────────────────────────────────────
+echo ""
+echo "=== Phase 6: DNS update + nginx config ==="
+./dns-update.sh
 
 echo ""
 echo "============================================"
