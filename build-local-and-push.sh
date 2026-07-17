@@ -73,7 +73,11 @@ echo "  Timestamp: $TIMESTAMP"
 
 GIT_COMMIT=$(git -C "$ABS_CONTEXT" rev-parse HEAD 2>/dev/null || echo "unknown")
 GIT_COMMIT_MSG=$(git -C "$ABS_CONTEXT" log -1 --format=%s 2>/dev/null || echo "unknown")
-echo "  Commit: ${GIT_COMMIT:0:10} — $GIT_COMMIT_MSG"
+GIT_BRANCH=$(git -C "$ABS_CONTEXT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+GIT_REMOTE=$(git -C "$ABS_CONTEXT" remote get-url origin 2>/dev/null || echo "unknown")
+echo "  Commit: ${GIT_COMMIT:0:10} on $GIT_BRANCH from $GIT_REMOTE"
+echo "  Message: $GIT_COMMIT_MSG"
+echo "  Hash: $GIT_COMMIT"
 
 # ── Check if commit already exists in ECR ───────────────────
 SKIP_BUILD=false
@@ -101,7 +105,7 @@ fi
 
 # ── Build ───────────────────────────────────────────────────
 echo "--- Building $SERVICE ---"
-BUILD_ARGS="--build-arg GIT_COMMIT=$GIT_COMMIT --build-arg GIT_COMMIT_MSG=$GIT_COMMIT_MSG"
+BUILD_ARGS="--build-arg GIT_COMMIT=$GIT_COMMIT --build-arg GIT_COMMIT_MSG=$GIT_COMMIT_MSG --build-arg GIT_BRANCH=$GIT_BRANCH --build-arg GIT_REMOTE=$GIT_REMOTE"
 if [ "$SERVICE" = "ehealthwares" ]; then
   docker build -f "docker/$DFILE" -t "$IMAGE:latest" \
     --build-arg "NEXT_PUBLIC_API_URL=http://www.ehealthwares.com" \

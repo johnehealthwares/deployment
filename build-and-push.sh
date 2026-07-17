@@ -147,7 +147,11 @@ for svc in "${SERVICES[@]}"; do
   esac
   COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
   MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
-  echo "  $svc: ${COMMIT:0:10} — $MSG"
+  BRANCH=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown")
+  REMOTE=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR remote get-url origin 2>/dev/null || echo unknown")
+  echo "  $svc: ${COMMIT:0:10} ($BRANCH) — $MSG"
+  echo "    remote: $REMOTE"
+  echo "    hash:   $COMMIT"
 done
 
 # Exit early if --commits-only
@@ -196,7 +200,7 @@ commit_exists_in_ecr() {
 echo "--- Build images ---"
 ENV_VARS="AWS_ACCOUNT_ID=$AWS_ACCOUNT_ID AWS_REGION=$REGION"
 BUILD_FAILED=false
-BUILD_SKIPPED=()
+BUILD_SKIPPED=""
 for svc in "${SERVICES[@]}"; do
   GH_DIR=""
   case "$svc" in
@@ -211,17 +215,19 @@ for svc in "${SERVICES[@]}"; do
   esac
   COMMIT=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse HEAD 2>/dev/null || echo unknown")
   MSG=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR log -1 --format=%s 2>/dev/null || echo unknown")
+  BRANCH=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown")
+  REMOTE=$($SSH_CMD "git -C /home/ubuntu/develop/deployment/$GH_DIR remote get-url origin 2>/dev/null || echo unknown")
   REPO=$(ecr_repo_for_service "$svc")
-  printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\n' "$COMMIT" "$MSG" | $SSH_CMD "cat > /tmp/git-vars-$svc"
+  printf 'GIT_COMMIT=%s\nGIT_COMMIT_MSG=%s\nGIT_BRANCH=%s\nGIT_REMOTE=%s\n' "$COMMIT" "$MSG" "$BRANCH" "$REMOTE" | $SSH_CMD "cat > /tmp/git-vars-$svc"
 
   # Check if this commit already exists in ECR
   if [ -z "${NO_CACHE:-}" ] && [ "$COMMIT" != "unknown" ] && commit_exists_in_ecr "$REPO" "$COMMIT"; then
     echo "  $svc commit ${COMMIT:0:10} already in ECR — skipping build"
-    BUILD_SKIPPED+=("$svc")
+    BUILD_SKIPPED="$BUILD_SKIPPED $svc "
     continue
   fi
 
-  echo "  Building $svc (${COMMIT:0:10} — $MSG)..."
+  echo "  Building $svc (${COMMIT:0:10} on $BRANCH from $REMOTE — $MSG)..."
   OK=false
   for try in 1 2 3; do
     if $SSH_CMD "cd /home/ubuntu/develop/deployment/docker && while IFS='=' read -r k v; do export \"\$k\"=\"\$v\"; done < /tmp/git-vars-$svc && sudo -E $ENV_VARS COMPOSE_PARALLEL_LIMIT=1 docker compose -f docker-compose.prod.yml build $NO_CACHE $svc" 2>&1; then
@@ -251,7 +257,7 @@ for svc in "${SERVICES[@]}"; do
   echo "  $IMAGE:latest + commit-${COMMIT:0:10} + env-$TIMESTAMP"
 
   # For skipped services: pull the existing commit image, then re-tag
-  if [[ " ${BUILD_SKIPPED[*]} " == *" $svc "* ]]; then
+  if [ -n "$BUILD_SKIPPED" ] && [[ "$BUILD_SKIPPED" == *" $svc "* ]]; then
     echo "  Pulling existing commit image..."
     $SSH_CMD "sudo docker pull '$IMAGE:commit-$COMMIT'" 2>&1 | tail -1
     $SSH_CMD "sudo docker tag '$IMAGE:commit-$COMMIT' '$IMAGE:latest' && sudo docker tag '$IMAGE:commit-$COMMIT' '$IMAGE:env-$TIMESTAMP'" 2>&1
