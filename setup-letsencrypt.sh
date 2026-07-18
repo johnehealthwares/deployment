@@ -116,8 +116,9 @@ else
   echo ""
   read -p "  Ready? Press Enter to start certbot (or Ctrl+C to cancel)..."
 
-  # Use ssh -t for interactive terminal
+  # Use ssh -t for interactive terminal (keepalive prevents disconnect during DNS wait)
   ssh -t -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/dev/null \
+    -o ServerAliveInterval=30 -o ServerAliveCountMax=5 \
     -i "$SSH_KEY" ubuntu@"$IP" "$CERTBOT_CMD" || {
     echo ""
     fail "Certbot failed. Check the output above for details."
