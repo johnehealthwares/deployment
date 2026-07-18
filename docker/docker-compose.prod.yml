@@ -252,6 +252,7 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+      - "443:443"
     environment:
       VITE_RXSOFT_API_URL: /api
       VITE_IDENTITY_API_URL: /api/identity
@@ -267,6 +268,8 @@ services:
       start_period: 10s
     volumes:
       - ./nginx/proxy_params.conf:/etc/nginx/proxy_params.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - ./nginx/conf.d/ssl.conf:/etc/nginx/conf.d/ssl.conf:ro
     networks:
       - rxsoft
 
