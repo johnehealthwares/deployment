@@ -89,8 +89,7 @@ fi
 step "3/6 — Obtain Let's Encrypt certificate"
 CERTBOT_CMD="sudo certbot certonly --manual --preferred-challenges dns \
   -d '*.${DOMAIN}' -d '${DOMAIN}' -d 'damorex.com' \
-  --agree-tos --email ${EMAIL} --no-eff-email \
-  --manual-public-ip-logging-ok"
+  --agree-tos --email ${EMAIL} --no-eff-email"
 
 if [ "$RENEW" = true ]; then
   CERTBOT_CMD="sudo certbot renew --manual --preferred-challenges dns --no-random-sleep-on-renew"
