@@ -51,8 +51,23 @@ SSL_CONF_DEST="$NGINX_DIR/conf.d/ssl.conf"
 LETSENCRYPT_DIR="/etc/letsencrypt/live/$DOMAIN"
 CERT_FILE="$LETSENCRYPT_DIR/fullchain.pem"
 
-# ── Step 1: Check if cert already exists ──────────────────
-step "1/5 — Check existing certificate"
+# ── Step 1: Install certbot on instance ──────────────────
+step "1/6 — Install certbot"
+if $DRY_RUN; then
+  info "[DRY-RUN] Would check/install certbot on $IP"
+else
+  CERTBOT_OK=$($SSH_BASE "which certbot" 2>/dev/null || true)
+  if [ -z "$CERTBOT_OK" ]; then
+    echo "  Installing certbot via snap..."
+    $SSH_BASE "sudo snap install certbot --classic" 2>&1 | tail -3
+    ok "certbot installed"
+  else
+    ok "certbot already available"
+  fi
+fi
+
+# ── Step 2: Check if cert already exists ──────────────────
+step "2/6 — Check existing certificate"
 if $DRY_RUN; then
   info "[DRY-RUN] Would check for existing cert at $CERT_FILE on $IP"
 elif $SSH_BASE "sudo test -f $CERT_FILE" 2>/dev/null; then
@@ -70,8 +85,8 @@ else
   CERT_EXISTS=false
 fi
 
-# ── Step 2: Run certbot on instance ───────────────────────
-step "2/5 — Obtain Let's Encrypt certificate"
+# ── Step 3: Run certbot on instance ───────────────────────
+step "3/6 — Obtain Let's Encrypt certificate"
 CERTBOT_CMD="sudo certbot certonly --manual --preferred-challenges dns \
   -d '*.${DOMAIN}' -d '${DOMAIN}' -d 'damorex.com' \
   --agree-tos --email ${EMAIL} --no-eff-email \
@@ -116,13 +131,13 @@ if [ "$DRY_RUN" = true ]; then
   exit 0
 fi
 
-# ── Step 3: Verify cert exists on instance ────────────────
-step "3/5 — Verify certificate files"
+# ── Step 4: Verify cert exists on instance ────────────────
+step "4/6 — Verify certificate files"
 $SSH_BASE "sudo ls -la $LETSENCRYPT_DIR/fullchain.pem $LETSENCRYPT_DIR/privkey.pem" 2>/dev/null || \
   fail "Certificate files not found at $LETSENCRYPT_DIR"
 
-# ── Step 4: Update docker-compose.prod.yml ───────────────
-step "4/5 — Update docker-compose.prod.yml"
+# ── Step 5: Update docker-compose.prod.yml ───────────────
+step "5/6 — Update docker-compose.prod.yml"
 if grep -q '"443:443"' "$COMPOSE_FILE" 2>/dev/null; then
   ok "Port 443 already configured"
 else
@@ -137,8 +152,8 @@ else
   ok "Added Let's Encrypt and SSL config volume mounts"
 fi
 
-# ── Step 5: Deploy SSL config to instance + reload nginx ──
-step "5/5 — Deploy SSL config and reload nginx"
+# ── Step 6: Deploy SSL config to instance + reload nginx ──
+step "6/6 — Deploy SSL config and reload nginx"
 
 if [ ! -f "$SSL_CONF_SRC" ]; then
   fail "SSL config not found at $SSL_CONF_SRC — create it first"
