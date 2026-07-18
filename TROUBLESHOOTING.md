@@ -240,23 +240,35 @@ ssh -t -i terraform/ssh/id_rsa ubuntu@$(cat .ec2-ip) \
 
 ### MongoDB replica set lost (rs.status() fails)
 ```bash
-# Quick fix — re-run replica set init
+# Quick fix — re-run replica set init (handles bootstrap if admin user missing)
 ./deploy_mongo_init.sh
 
-# Manual approach (if script fails)
-./ssh.sh sudo docker exec rxsoft-mongodb mongosh --quiet \
-  --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})' 2>/dev/null || true
-./ssh.sh sudo docker exec rxsoft-mongodb mongosh admin --quiet \
-  --eval 'if(!db.getUser("admin")){db.createUser({user:"admin",pwd:"admin123",roles:[{role:"root",db:"admin"}]})}'
+# Manual approach — if admin user exists:
+./ssh.sh sudo docker exec rxsoft-mongodb mongosh -u admin -p admin123 \
+  --authenticationDatabase admin --quiet \
+  --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})'
+
+# Manual approach — if admin user does NOT exist (bootstraps via temp container):
+./ssh.sh sudo bash -c '
+  docker stop rxsoft-mongodb
+  docker run -d --name rxsoft-mongodb-tmp --network docker_rxsoft \
+    -v docker_mongo_data:/data/db \
+    mongo:8.0 --bind_ip_all --port 27018
+  sleep 5
+  docker exec rxsoft-mongodb-tmp mongosh admin --quiet \
+    --eval "db.createUser({user:\"admin\",pwd:\"admin123\",roles:[{role:\"root\",db:\"admin\"}]})"
+  docker stop rxsoft-mongodb-tmp; docker rm rxsoft-mongodb-tmp
+  docker start rxsoft-mongodb
+  sleep 10
+  docker exec rxsoft-mongodb mongosh -u admin -p admin123 \
+    --authenticationDatabase admin --quiet \
+    --eval "rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"localhost:27017\"}]})"
+'
 
 # Verify
-./ssh.sh sudo docker exec rxsoft-mongodb mongosh --quiet --eval 'rs.status().ok'
+./ssh.sh sudo docker exec rxsoft-mongodb mongosh -u admin -p admin123 \
+  --authenticationDatabase admin --quiet --eval 'rs.status().ok'
 # Should return 1
-
-# If mongo-init container exists but needs re-run:
-./ssh.sh sudo docker rm -f rxsoft-mongo-init 2>/dev/null
-./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml \
-  --profile mongo-init up -d --no-build
 ```
 
 ## Backup

@@ -57,12 +57,29 @@ echo "  No replica set found — initializing..."
 
 # ── 3. Init replica set ────────────────────────────────────
 echo "--- Initializing replica set rs0 ---"
-$SSH "sudo docker exec rxsoft-mongodb mongosh --quiet --eval 'rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"localhost:27017\"}]})' 2>&1" || true
-sleep 3
+RS_INIT=$($SSH "sudo docker exec rxsoft-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin --quiet --eval 'rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"localhost:27017\"}]})' 2>&1" 2>/dev/null || true)
 
-# ── 4. Create admin user if not exists ──────────────────────
-echo "--- Creating admin user ---"
-$SSH "sudo docker exec rxsoft-mongodb mongosh admin --quiet --eval 'if(!db.getUser(\"admin\")){db.createUser({user:\"admin\",pwd:\"admin123\",roles:[{role:\"root\",db:\"admin\"}]})}' 2>&1" || true
+# If auth fails, bootstrap admin user via temp container
+if echo "$RS_INIT" | grep -q "requires authentication"; then
+  echo "  Admin user missing — bootstrapping..."
+  $SSH "sudo bash -c '
+    docker stop rxsoft-mongodb 2>/dev/null
+    docker run -d --name rxsoft-mongodb-tmp --network docker_rxsoft \
+      -v docker_mongo_data:/data/db \
+      mongo:8.0 --bind_ip_all --port 27018 2>/dev/null
+    sleep 5
+    docker exec rxsoft-mongodb-tmp mongosh admin --quiet --eval \
+      \"db.createUser({user:\\\"admin\\\",pwd:\\\"admin123\\\",roles:[{role:\\\"root\\\",db:\\\"admin\\\"}]})\" 2>/dev/null || true
+    docker stop rxsoft-mongodb-tmp 2>/dev/null
+    docker rm rxsoft-mongodb-tmp 2>/dev/null
+    docker start rxsoft-mongodb 2>/dev/null
+  '" 2>&1 | tail -5
+  sleep 10
+  echo "  Retrying replica set init..."
+  $SSH "sudo docker exec rxsoft-mongodb mongosh -u admin -p admin123 --authenticationDatabase admin --quiet --eval 'rs.initiate({_id:\"rs0\",members:[{_id:0,host:\"localhost:27017\"}]})' 2>&1" || true
+else
+  echo "  $RS_INIT"
+fi
 
 # ── 5. Verify ───────────────────────────────────────────────
 echo "--- Verification ---"
