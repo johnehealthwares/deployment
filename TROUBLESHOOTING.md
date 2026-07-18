@@ -101,6 +101,8 @@ scp -i terraform/ssh/id_rsa docker/nginx-default.conf ubuntu@<IP>:/home/ubuntu/d
 ./ssh.sh sudo docker logs rxsoft-postgres --tail 20
 ./ssh.sh sudo docker logs rxsoft-admin --tail 20
 ./ssh.sh sudo docker logs rxsoft-ehealthwares --tail 20
+./ssh.sh sudo docker logs rxsoft-adminer --tail 20
+./ssh.sh sudo docker logs rxsoft-mongo-express --tail 20
 
 # Restart single service (--force-recreate picks up .env file changes)
 ./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml --env-file /home/ubuntu/develop/docker/.env.memory up -d --no-deps --force-recreate <service>
@@ -108,6 +110,50 @@ scp -i terraform/ssh/id_rsa docker/nginx-default.conf ubuntu@<IP>:/home/ubuntu/d
 # Rebuild single service (use --no-cache for fresh build)
 ./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml build --no-cache <service>
 ./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml up -d --no-deps --force-recreate <service>
+```
+
+## Adminer & Mongo Express (Web DB Tools)
+
+```bash
+# Deploy (one-time)
+./deploy_databases.sh   # starts adminer and mongo-express alongside postgres/mongodb
+
+# Access
+#   Adminer:       http://<IP>:8081/     — PostgreSQL + any SQL DB
+#   Mongo Express: http://<IP>:8082/     — MongoDB
+
+# Adminer login:
+#   System:      PostgreSQL
+#   Server:      rxsoft-postgres (Docker network) or localhost
+#   Username:    postgres
+#   Password:    postgres
+#   Database:    rxsoft, lis, or identity
+
+# Mongo Express:
+#   Auto-connected to rxsoft-mongodb via compose network
+#   No login required (ME_CONFIG_BASICAUTH=false)
+```
+
+### nginx routes (optional, for cleaner access via port 80)
+
+Add to `nginx-default.conf` or upload via `dns-update.sh`:
+
+```nginx
+location /adminer/ {
+    proxy_pass http://rxsoft-adminer:8080/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+location /mongo-express/ {
+    proxy_pass http://rxsoft-mongo-express:8081/;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+}
+```
+
+Then reload nginx:
+```bash
+./ssh.sh sudo docker exec rxsoft-admin nginx -s reload
 ```
 
 ## Health Check
@@ -190,6 +236,27 @@ ssh -t -i terraform/ssh/id_rsa ubuntu@$(cat .ec2-ip) \
 ### Re-run cloud-init after script change
 ```bash
 ./ssh.sh sudo bash /var/lib/cloud/instance/scripts/part-001
+```
+
+### MongoDB replica set lost (rs.status() fails)
+```bash
+# Quick fix — re-run replica set init
+./deploy_mongo_init.sh
+
+# Manual approach (if script fails)
+./ssh.sh sudo docker exec rxsoft-mongodb mongosh --quiet \
+  --eval 'rs.initiate({_id:"rs0",members:[{_id:0,host:"localhost:27017"}]})' 2>/dev/null || true
+./ssh.sh sudo docker exec rxsoft-mongodb mongosh admin --quiet \
+  --eval 'if(!db.getUser("admin")){db.createUser({user:"admin",pwd:"admin123",roles:[{role:"root",db:"admin"}]})}'
+
+# Verify
+./ssh.sh sudo docker exec rxsoft-mongodb mongosh --quiet --eval 'rs.status().ok'
+# Should return 1
+
+# If mongo-init container exists but needs re-run:
+./ssh.sh sudo docker rm -f rxsoft-mongo-init 2>/dev/null
+./ssh.sh sudo docker compose -f /home/ubuntu/develop/docker/docker-compose.prod.yml \
+  --profile mongo-init up -d --no-build
 ```
 
 ## Backup
