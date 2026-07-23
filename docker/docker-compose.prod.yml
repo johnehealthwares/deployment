@@ -123,6 +123,9 @@ services:
     build:
       context: ../rxsoft-lis-backend
       dockerfile: ../docker/Dockerfile.rxsoft-lis-backend
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-lis-backend:latest
     container_name: rxsoft-lis-backend
     env_file: .env.rxsoft-lis-backend
@@ -153,6 +156,9 @@ services:
     build:
       context: ../conversation-engine
       dockerfile: ../docker/Dockerfile.conversation-engine
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/conversation-engine:latest
     container_name: rxsoft-conversation-engine
     env_file: .env.conversation-engine
@@ -179,6 +185,9 @@ services:
     build:
       context: ../common-healthcare-resources
       dockerfile: ../docker/Dockerfile.healthcare-concepts
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/healthcare-concepts:latest
     container_name: rxsoft-healthcare-concepts
     env_file: .env.healthcare-concepts
@@ -207,6 +216,9 @@ services:
     build:
       context: ../healthcare-interoperability-switch
       dockerfile: ../docker/Dockerfile.healthcare-interop
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/healthcare-interop:latest
     container_name: rxsoft-healthcare-interop
     env_file: .env.healthcare-interop
@@ -245,6 +257,8 @@ services:
         VITE_CONVERSATION_API_URL: /api/conversation
         VITE_COMMUNICATION_API_URL: /api/communication
         VITE_CODING_CONCEPT_API_URL: /api/coding
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-admin:latest
     container_name: rxsoft-admin
     env_file: .env.rxsoft-admin
@@ -278,6 +292,9 @@ services:
     build:
       context: ../identity
       dockerfile: ../docker/Dockerfile.rxsoft-identity
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-identity:latest
     container_name: rxsoft-identity
     env_file: .env.rxsoft-identity
@@ -313,6 +330,9 @@ services:
     build:
       context: ../ehealthwares
       dockerfile: ../docker/Dockerfile.ehealthwares
+      args:
+        GIT_COMMIT: ${GIT_COMMIT}
+        GIT_COMMIT_MSG: ${GIT_COMMIT_MSG}
     image: ${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION:-eu-west-1}.amazonaws.com/rxsoft-ehealthwares:latest
     container_name: rxsoft-ehealthwares
     env_file: .env.ehealthwares
