@@ -78,6 +78,7 @@ scp -i terraform/ssh/id_rsa docker/nginx-default.conf ubuntu@<IP>:/home/ubuntu/d
 ./ssh.sh sudo docker exec rxsoft-admin env | sort
 ./ssh.sh sudo docker exec rxsoft-postgres env | sort
 ./ssh.sh sudo docker exec rxsoft-mongodb env | sort
+./ssh.sh sudo docker exec rxsoft-conversation-engine env | sort
 
 # Single variable lookup
 ./ssh.sh sudo docker exec rxsoft-backend printenv DB_HOST JWT_ACCESS_SECRET
@@ -269,6 +270,35 @@ ssh -t -i terraform/ssh/id_rsa ubuntu@$(cat .ec2-ip) \
 ./ssh.sh sudo docker exec rxsoft-mongodb mongosh -u admin -p admin123 \
   --authenticationDatabase admin --quiet --eval 'rs.status().ok'
 # Should return 1
+```
+
+## Deployed Commit Hash
+
+```bash
+# Method 1: Fast — rxsoft-backend only (GIT_COMMIT baked into image at build time)
+./ssh.sh sudo docker exec rxsoft-backend env | grep ^GIT_COMMIT
+
+# Method 2: ECR image digest lookup — all services
+# Finds the commit-<sha> tag in ECR matching the running container's image digest
+./ssh.sh sudo bash -c '
+  for svc in rxsoft-backend rxsoft-identity rxsoft-admin rxsoft-ehealthwares rxsoft-conversation-engine; do
+    IMAGE=$(docker inspect $svc --format "{{.Config.Image}}" 2>/dev/null) || { echo "  $svc: not running"; continue; }
+    DIGEST=$(docker inspect $svc --format "{{.Image}}" 2>/dev/null | sed "s/sha256://")
+    REPO=$(echo "$IMAGE" | sed "s|^[^/]*/||" | cut -d: -f1)
+    COMMIT=$(aws ecr describe-images --repository-name "$REPO" --image-ids "imageDigest=sha256:$DIGEST" \
+      --query "imageDetails[0].imageTags" --output text 2>/dev/null | tr "\t" "\n" | grep "^commit-" | head -1 | sed "s/^commit-//" || echo "no commit tag")
+    echo "  $svc: $COMMIT"
+  done
+'
+
+# Method 3: One-liner for a single service
+./ssh.sh sudo bash -c '
+  svc=rxsoft-backend
+  DIGEST=$(docker inspect $svc --format "{{.Image}}" | sed "s/sha256://")
+  REPO=$(docker inspect $svc --format "{{.Config.Image}}" | sed "s|^[^/]*/||" | cut -d: -f1)
+  aws ecr describe-images --repository-name "$REPO" --image-ids "imageDigest=sha256:$DIGEST" \
+    --query "imageDetails[0].imageTags" --output text | tr "\t" "\n" | grep "^commit-" | sed "s/^commit-//"
+'
 ```
 
 ## Backup
